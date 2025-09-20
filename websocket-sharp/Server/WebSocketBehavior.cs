@@ -91,7 +91,7 @@ namespace WebSocketSharp.Server
     protected NameValueCollection Headers {
       get {
         if (_context == null) {
-          var msg = "The get operation is not available.";
+          var msg = "The session has not started yet.";
 
           throw new InvalidOperationException (msg);
         }

@@ -90,7 +90,7 @@ namespace WebSocketSharp.Server
     /// </exception>
     protected NameValueCollection Headers {
       get {
-        if (_context == null) {
+        if (!_registered) {
           var msg = "The session has not started yet.";
 
           throw new InvalidOperationException (msg);

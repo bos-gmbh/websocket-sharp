@@ -166,7 +166,7 @@ namespace WebSocketSharp.Server
     protected WebSocketState ReadyState {
       get {
         if (_websocket == null) {
-          var msg = "The get operation is not available.";
+          var msg = "The session has not started yet.";
 
           throw new InvalidOperationException (msg);
         }

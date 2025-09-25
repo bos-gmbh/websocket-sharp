@@ -187,7 +187,7 @@ namespace WebSocketSharp.Server
     /// </exception>
     protected WebSocketSessionManager Sessions {
       get {
-        if (_sessions == null) {
+        if (!_registered) {
           var msg = "The session has not started yet.";
 
           throw new InvalidOperationException (msg);

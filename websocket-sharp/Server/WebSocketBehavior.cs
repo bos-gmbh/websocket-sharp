@@ -236,7 +236,7 @@ namespace WebSocketSharp.Server
     /// </exception>
     protected System.Net.IPEndPoint UserEndPoint {
       get {
-        if (_context == null) {
+        if (!_registered) {
           var msg = "The session has not started yet.";
 
           throw new InvalidOperationException (msg);

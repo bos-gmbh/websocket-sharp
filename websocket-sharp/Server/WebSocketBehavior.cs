@@ -538,7 +538,7 @@ namespace WebSocketSharp.Server
           throw new InvalidOperationException (msg);
         }
 
-        if (value == null || value.Length == 0) {
+        if (value.IsNullOrEmpty ()) {
           _protocol = null;
 
           return;

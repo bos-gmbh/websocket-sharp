@@ -526,7 +526,7 @@ namespace WebSocketSharp.Server
     /// </exception>
     public string Protocol {
       get {
-        return _websocket != null
+        return _registered
                ? _websocket.Protocol
                : (_protocol ?? String.Empty);
       }

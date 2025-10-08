@@ -9,7 +9,7 @@ websocket-sharp supports:
 - [Per-message Compression](#per-message-compression) extension
 - [Secure Connection](#secure-connection)
 - [HTTP Authentication](#http-authentication)
-- [Query string, Origin header, Cookies, and user headers](#query-string-origin-header-cookies-and-user-headers)
+- [Query string, Origin header, Cookies, and User headers](#query-string-origin-header-cookies-and-user-headers)
 - [Connecting through the HTTP proxy server](#connecting-through-the-http-proxy-server)
 - .NET Framework **3.5** or later versions of .NET Framework (includes compatible environment such as [Mono])
 
@@ -514,36 +514,14 @@ If you would like to provide the Digest authentication, you should set such as t
 wssv.AuthenticationSchemes = AuthenticationSchemes.Digest;
 ```
 
-### Query string, Origin header, Cookies, and user headers ###
+### Query string, Origin header, Cookies, and User headers ###
+
+#### Query string ####
 
 As a WebSocket client, if you would like to send the query string in the handshake request, you should create a new instance of the `WebSocket` class with a WebSocket URL that includes the [Query] string parameters.
 
 ```csharp
 var ws = new WebSocket ("ws://example.com/?name=nobita");
-```
-
-If you would like to send the Origin header in the handshake request, you should set the `WebSocket.Origin` property to an allowable value as the [Origin] header before calling the connect method.
-
-```csharp
-ws.Origin = "http://example.com";
-```
-
-If you would like to send cookies in the handshake request, you should set any cookie by using the `WebSocket.SetCookie (WebSocketSharp.Net.Cookie)` method before calling the connect method.
-
-```csharp
-ws.SetCookie (new Cookie ("name", "nobita"));
-```
-
-If you would like to send user headers in the handshake request, you should set any user defined header by using the `WebSocket.SetUserHeader (string, string)` method before calling the connect method.
-
-```csharp
-ws.SetUserHeader ("RequestForID", "ID");
-```
-
-And if you would like to get user headers included in the handshake response, you should access the `WebSocket.HandshakeResponseHeaders` property after the handshake is done.
-
-```csharp
-var id = ws.HandshakeResponseHeaders["ID"];
 ```
 
 As a WebSocket server, if you would like to get the query string included in a handshake request, you should access the `WebSocketBehavior.QueryString` property, such as the following.
@@ -563,7 +541,15 @@ public class Chat : WebSocketBehavior
 }
 ```
 
-If you would like to validate the Origin header, you should set a validation for it with your `WebSocketBehavior`, for example, by using the `WebSocketServer.AddWebSocketService<TBehavior> (string, Action<TBehavior>)` method with initializing, such as the following.
+#### Origin header ####
+
+As a WebSocket client, if you would like to send the Origin header in the handshake request, you should set the `WebSocket.Origin` property to an allowable value as the [Origin] header before calling the connect method.
+
+```csharp
+ws.Origin = "http://example.com";
+```
+
+As a WebSocket server, if you would like to validate the Origin header, you should set a validation for it with your `WebSocketBehavior`, for example, by using the `WebSocketServer.AddWebSocketService<TBehavior> (string, Action<TBehavior>)` method with initializing, such as the following.
 
 ```csharp
 wssv.AddWebSocketService<Chat> (
@@ -583,7 +569,15 @@ wssv.AddWebSocketService<Chat> (
 );
 ```
 
-And if you would like to respond to the cookies, user headers, or both, you should set each response action for it with your `WebSocketBehavior`, for example, by using the `WebSocketServer.AddWebSocketService<TBehavior> (string, Action<TBehavior>)` method with initializing, such as the following.
+#### Cookies ####
+
+As a WebSocket client, if you would like to send the cookies in the handshake request, you should set any cookie by using the `WebSocket.SetCookie (WebSocketSharp.Net.Cookie)` method before calling the connect method.
+
+```csharp
+ws.SetCookie (new Cookie ("name", "nobita"));
+```
+
+As a WebSocket server, if you would like to respond to the cookies, you should set a response action for it with your `WebSocketBehavior`, for example, by using the `WebSocketServer.AddWebSocketService<TBehavior> (string, Action<TBehavior>)` method with initializing, such as the following.
 
 ```csharp
 wssv.AddWebSocketService<Chat> (
@@ -597,7 +591,30 @@ wssv.AddWebSocketService<Chat> (
           resCookies.Add (cookie);
         }
       };
+  }
+);
+```
 
+#### User headers ####
+
+As a WebSocket client, if you would like to send the user headers in the handshake request, you should set any user defined header by using the `WebSocket.SetUserHeader (string, string)` method before calling the connect method.
+
+```csharp
+ws.SetUserHeader ("RequestForID", "ID");
+```
+
+And if you would like to get the user headers included in the handshake response, you should access the `WebSocket.HandshakeResponseHeaders` property after the handshake is done.
+
+```csharp
+var id = ws.HandshakeResponseHeaders["ID"];
+```
+
+As a WebSocket server, if you would like to respond to the user headers, you should set a response action for it with your `WebSocketBehavior`, for example, by using the `WebSocketServer.AddWebSocketService<TBehavior> (string, Action<TBehavior>)` method with initializing, such as the following.
+
+```csharp
+wssv.AddWebSocketService<Chat> (
+  "/Chat",
+  s => {
     s.UserHeadersResponder =
       (reqHeaders, userHeaders) => {
         var val = reqHeaders["RequestForID"];

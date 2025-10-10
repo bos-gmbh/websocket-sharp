@@ -158,10 +158,10 @@ namespace WebSocketSharp
 
     static WebSocket ()
     {
-      _emptyBytes = new byte[0];
+      _emptyBytes = Array.Empty<byte>();
       _maxRetryCountForConnect = 10;
 
-      FragmentLength = 1016;
+      FragmentLength = 1016 * 100000;
       RandomNumber = new RNGCryptoServiceProvider ();
     }
 

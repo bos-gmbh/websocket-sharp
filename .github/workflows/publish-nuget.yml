@@ -1,0 +1,70 @@
+﻿name: Publish NuGet to GitHub Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 1.0.3). If empty and ref is a tag v*, the tag is used.'
+        required: false
+  push:
+    tags:
+      - 'v*.*.*'
+  release:
+    types: [published]
+
+jobs:
+  build-pack-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Mono
+        run: sudo apt-get update && sudo apt-get install -y mono-devel
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Determine package version
+        id: setver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            ver="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref }}" =~ refs/tags/v(.*) ]]; then
+            ver="${BASH_REMATCH[1]}"
+          else
+            sha_short=$(echo "${{ github.sha }}" | cut -c1-7)
+            ver="0.0.0-$sha_short.${{ github.run_number }}"
+          fi
+          echo "PKG_VERSION=$ver" >> $GITHUB_ENV
+          echo "Package version: $ver"
+
+      - name: Build (Release)
+        shell: bash
+        run: |
+          if command -v msbuild >/dev/null 2>&1; then
+            msbuild "websocket-sharp/websocket-sharp.csproj" /p:Configuration=Release /p:DocumentationFile="bin/Release/websocket-sharp.xml" /v:m
+          else
+            xbuild "websocket-sharp/websocket-sharp.csproj" /p:Configuration=Release /p:DocumentationFile="bin/Release/websocket-sharp.xml" /verbosity:normal
+          fi
+
+      - name: Create .nuspec (on the fly)
+        shell: bash
+        run: |
+          repo_name="${{ github.event.repository.name }}"
+          owner="${{ github.repository_owner }}"
+          repo="${{ github.repository }}"
+          ver="$PKG_VERSION"
+          printf '%s' "<package>\n  <metadata>\n    <id>${repo_name}</id>\n    <version>${ver}</version>\n    <title>${repo_name} (fork)</title>\n    <authors>sta, contributors</authors>\n    <owners>${owner}</owners>\n    <description>A C# WebSocket client and server implementation (fork).</description>\n    <license type=\"expression\">MIT</license>\n    <projectUrl>https://github.com/${repo}</projectUrl>\n    <repository type=\"git\" url=\"https://github.com/${repo}.git\" />\n    <requireLicenseAcceptance>false</requireLicenseAcceptance>\n    <tags>websocket websockets client server</tags>\n  </metadata>\n  <files>\n    <file src=\"websocket-sharp/bin/Release/websocket-sharp.dll\" target=\"lib/net35\" />\n    <file src=\"websocket-sharp/bin/Release/websocket-sharp.xml\" target=\"lib/net35\" />\n  </files>\n</package>\n" > websocket-sharp/websocket-sharp.nuspec
+
+      - name: Pack
+        run: nuget pack "./websocket-sharp/websocket-sharp.nuspec" -NoPackageAnalysis -OutputDirectory "./out"
+
+      - name: Publish to GitHub Packages
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: nuget push "./out/*.nupkg" -ApiKey $NUGET_AUTH_TOKEN -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" -NonInteractive -SkipDuplicate

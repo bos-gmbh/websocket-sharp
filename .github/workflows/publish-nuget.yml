@@ -1,0 +1,106 @@
+﻿name: Publish NuGet to GitHub Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 1.0.3). If empty and ref is a tag v*, the tag is used.'
+        required: false
+  push:
+    tags:
+      - 'v*.*.*'
+  release:
+    types: [published]
+
+jobs:
+  build-pack-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.x'
+
+      - name: Determine package version
+        id: setver
+        shell: bash
+        run: |
+          TAG_FROM_COMMIT="false"
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            ver="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref }}" =~ refs/tags/v(.*) ]]; then
+            ver="${BASH_REMATCH[1]}"
+          else
+            sha_short=$(echo "${{ github.sha }}" | cut -c1-7)
+            ver="0.0.0-$sha_short.${{ github.run_number }}"
+            TAG_FROM_COMMIT="true"
+          fi
+          echo "PKG_VERSION=$ver" >> $GITHUB_ENV
+          echo "TAG_FROM_COMMIT=$TAG_FROM_COMMIT" >> $GITHUB_ENV
+          if [[ "$ver" == *-* ]]; then
+            echo "PRERELEASE=true" >> $GITHUB_ENV
+          else
+            echo "PRERELEASE=false" >> $GITHUB_ENV
+          fi
+          echo "Package version: $ver (prerelease=$PRERELEASE)"
+
+      - name: Build
+        run: dotnet build "websocket-sharp/websocket-sharp.csproj" -c Release /p:Version="${{ env.PKG_VERSION }}"
+
+      - name: Pack
+        run: dotnet pack "websocket-sharp/websocket-sharp.csproj" -c Release -o "./out" /p:Version="${{ env.PKG_VERSION }}" /p:PackageVersion="${{ env.PKG_VERSION }}" --no-build
+
+      - name: Tag commit
+        if: env.TAG_FROM_COMMIT == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v${{ env.PKG_VERSION }}" -m "Release v${{ env.PKG_VERSION }}"
+          git push origin "v${{ env.PKG_VERSION }}"
+
+      - name: Publish to GitHub Packages
+        run: dotnet nuget push "./out/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source "https://nuget.pkg.github.com/${{ github.repository_owner }}" --skip-duplicate
+
+      - name: Prepare release artifacts
+        shell: bash
+        run: |
+          sudo apt-get install -y zip
+          zip -j "./out/Bos.WebsocketSharp-netstandard2.0.zip" \
+            "websocket-sharp/bin/Release/netstandard2.0/websocket-sharp.dll" \
+            "websocket-sharp/bin/Release/netstandard2.0/websocket-sharp.xml"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bos.WebsocketSharp-${{ env.PKG_VERSION }}
+          path: |
+            out/*.nupkg
+            out/Bos.WebsocketSharp-netstandard2.0.zip
+
+      - name: Create/Update GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ env.PKG_VERSION }}
+          name: Bos.WebsocketSharp v${{ env.PKG_VERSION }}
+          allowUpdates: true
+          removeArtifacts: false
+          prerelease: ${{ env.PRERELEASE == 'true' }}
+          makeLatest: ${{ env.PRERELEASE != 'true' }}
+          body: |
+            Release of Bos.WebsocketSharp v${{ env.PKG_VERSION }}.
+
+            Artifacts:
+            - NuGet package (.nupkg) for GitHub Packages
+            - Compiled binary (DLL) and XML docs zipped for quick reference
+
+            Source: https://github.com/${{ github.repository }}
+          artifacts: |
+            out/*.nupkg
+            out/Bos.WebsocketSharp-netstandard2.0.zip

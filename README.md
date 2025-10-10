@@ -1,3 +1,14 @@
+# Edit: Nuget Feed hinzufügen
+
+Ein Personal Access Token (Classic) mit `read:packages` wird benötigt
+
+```powershell
+dotnet nuget add source https://nuget.pkg.github.com/bos-gmbh/index.json -n bos-gmbh -u BierDav -p <personal-access-token>
+```
+
+---
+
+
 ![Logo](websocket-sharp_logo.png)
 
 ## Welcome to websocket-sharp! ##

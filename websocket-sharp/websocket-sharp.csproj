@@ -1,21 +1,21 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
-    <AssemblyName>websocket-sharp</AssemblyName>
+    <AssemblyName>Bos.WebSocketSharp</AssemblyName>
     <RootNamespace>WebSocketSharp</RootNamespace>
     <SignAssembly>true</SignAssembly>
-    <AssemblyOriginatorKeyFile>websocket-sharp.snk</AssemblyOriginatorKeyFile>
+    <AssemblyOriginatorKeyFile>Bos.WebSocketSharp.snk</AssemblyOriginatorKeyFile>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
-    <PackageId>Bos.WebsocketSharp</PackageId>
+    <PackageId>Bos.WebSocketSharp</PackageId>
     <Authors>sta, contributors</Authors>
     <Company>sta</Company>
-    <Product>websocket-sharp</Product>
-    <Description>A C# WebSocket client and server implementation.</Description>
+    <Product>Bos.WebSocketSharp</Product>
+    <Description>A C# WebSocket client and server implementation. (Forked by BOS)</Description>
     <Copyright>Copyright (c) 2010-2016 sta.block.ops</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/sta/websocket-sharp</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/sta/websocket-sharp</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/bos-gmbh/websocket-sharp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/bos-gmbh/websocket-sharp</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>websocket websockets client server</PackageTags>
     <LangVersion>latest</LangVersion>

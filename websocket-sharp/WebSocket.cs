@@ -314,7 +314,7 @@ public class WebSocket : IDisposable
     // As server
     internal bool IgnoreExtensions { get; set; }
 
-    internal bool IsConnected => _readyState == WebSocketState.Open || _readyState == WebSocketState.Closing;
+    public bool IsConnected => _readyState is WebSocketState.Open or WebSocketState.Closing;
 
     #endregion
 

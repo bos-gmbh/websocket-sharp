@@ -10,7 +10,7 @@ on:
     tags:
       - 'v*.*.*'
   release:
-    types: [published]
+    types: [ published ]
 
 jobs:
   build-pack-push:
@@ -87,4 +87,4 @@ jobs:
 
             Source: https://github.com/${{ github.repository }}
           artifacts: |
-            out/*
+            WebSocketSharp/out/*

@@ -20,7 +20,4 @@
     <PackageTags>websocket websockets client server</PackageTags>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="System.ServiceModel.Primitives" Version="4.10.3" />
-  </ItemGroup>
 </Project>

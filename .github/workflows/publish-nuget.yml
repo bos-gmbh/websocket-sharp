@@ -31,7 +31,6 @@ jobs:
         id: setver
         shell: bash
         run: |
-          TAG_FROM_COMMIT="false"
           if [ -n "${{ github.event.inputs.version }}" ]; then
             ver="${{ github.event.inputs.version }}"
           elif [[ "${{ github.ref }}" =~ refs/tags/v(.*) ]]; then
@@ -39,7 +38,6 @@ jobs:
           else
             sha_short=$(echo "${{ github.sha }}" | cut -c1-7)
             ver="0.0.0-$sha_short.${{ github.run_number }}"
-            TAG_FROM_COMMIT="true"
           fi
           echo "PKG_VERSION=$ver" >> $GITHUB_ENV
           echo "TAG_FROM_COMMIT=$TAG_FROM_COMMIT" >> $GITHUB_ENV
@@ -59,7 +57,7 @@ jobs:
         run: dotnet pack -c Release -o "./out" /p:Version="${{ env.PKG_VERSION }}" /p:PackageVersion="${{ env.PKG_VERSION }}" --no-build
 
       - name: Tag commit
-        if: env.TAG_FROM_COMMIT == 'true'
+        if: ${{ github.event.inputs.version != '' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

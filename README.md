@@ -1,9 +1,15 @@
 # Edit: Nuget Feed hinzufügen
 
-Ein Personal Access Token (Classic) mit `read:packages` wird benötigt
+Ein [Personal Access Token (Classic)](https://github.com/settings/tokens) mit der einen Berechtigung `read:packages` wird benötigt
 
+#### Windows
 ```powershell
-dotnet nuget add source https://nuget.pkg.github.com/bos-gmbh/index.json -n bos-gmbh -u BierDav -p <personal-access-token>
+dotnet nuget add source https://nuget.pkg.github.com/bos-gmbh/index.json -n bos-gmbh -u <github-username> -p <personal-access-token>
+```
+
+#### Nicht-Windows
+```bash
+dotnet nuget add source https://nuget.pkg.github.com/bos-gmbh/index.json -n bos-gmbh --store-password-in-clear-text -u <github-username> -p <personal-access-token>
 ```
 
 ---

@@ -1,10 +1,11 @@
 #region License
+
 /*
  * MessageEventArgs.cs
  *
  * The MIT License
  *
- * Copyright (c) 2012-2022 sta.blockhead
+ * Copyright (c) 2012-2016 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,69 +25,85 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 using System;
 
-namespace WebSocketSharp
+#pragma warning disable CS8625
+namespace WebSocketSharp;
+
+/// <summary>
+///     Represents the event data for the <see cref="WebSocket.OnMessage" /> event.
+/// </summary>
+/// <remarks>
+///     <para>
+///         That event occurs when the <see cref="WebSocket" /> receives
+///         a message or a ping if the <see cref="WebSocket.EmitOnPing" />
+///         property is set to <c>true</c>.
+///     </para>
+///     <para>
+///         If you would like to get the message data, you should access
+///         the <see cref="Data" /> or <see cref="RawData" /> property.
+///     </para>
+/// </remarks>
+public class MessageEventArgs : EventArgs
 {
-  /// <summary>
-  /// Represents the event data for the <see cref="WebSocket.OnMessage"/> event.
-  /// </summary>
-  /// <remarks>
-  ///   <para>
-  ///   The message event occurs when the <see cref="WebSocket"/> interface
-  ///   receives a message or a ping if the <see cref="WebSocket.EmitOnPing"/>
-  ///   property is set to <c>true</c>.
-  ///   </para>
-  ///   <para>
-  ///   If you would like to get the message data, you should access
-  ///   the <see cref="Data"/> or <see cref="RawData"/> property.
-  ///   </para>
-  /// </remarks>
-  public class MessageEventArgs : EventArgs
-  {
+    #region Internal Properties
+
+    /// <summary>
+    ///     Gets the opcode for the message.
+    /// </summary>
+    /// <value>
+    ///     <see cref="Opcode.Text" />, <see cref="Opcode.Binary" />,
+    ///     or <see cref="Opcode.Ping" />.
+    /// </value>
+    internal Opcode Opcode { get; }
+
+    #endregion
+
+    #region Private Methods
+
+    private void setData()
+    {
+        if (_dataSet)
+            return;
+
+        if (Opcode == Opcode.Binary)
+        {
+            _dataSet = true;
+            return;
+        }
+
+        _data = _rawData.UTF8Decode();
+        _dataSet = true;
+    }
+
+    #endregion
+
     #region Private Fields
 
     private string _data;
-    private bool   _dataSet;
-    private Opcode _opcode;
-    private byte[] _rawData;
+    private bool _dataSet;
+    private readonly byte[] _rawData;
 
     #endregion
 
     #region Internal Constructors
 
-    internal MessageEventArgs (WebSocketFrame frame)
+    internal MessageEventArgs(WebSocketFrame frame)
     {
-      _opcode = frame.Opcode;
-      _rawData = frame.PayloadData.ApplicationData;
+        Opcode = frame.Opcode;
+        _rawData = frame.PayloadData.ApplicationData;
     }
 
-    internal MessageEventArgs (Opcode opcode, byte[] rawData)
+    internal MessageEventArgs(Opcode opcode, byte[] rawData)
     {
-      if ((ulong) rawData.LongLength > PayloadData.MaxLength)
-        throw new WebSocketException (CloseStatusCode.TooBig);
+        if ((ulong)rawData.LongLength > PayloadData.MaxLength)
+            throw new WebSocketException(CloseStatusCode.TooBig);
 
-      _opcode = opcode;
-      _rawData = rawData;
-    }
-
-    #endregion
-
-    #region Internal Properties
-
-    /// <summary>
-    /// Gets the opcode for the message.
-    /// </summary>
-    /// <value>
-    /// <see cref="Opcode.Text"/>, <see cref="Opcode.Binary"/>,
-    /// or <see cref="Opcode.Ping"/>.
-    /// </value>
-    internal Opcode Opcode {
-      get {
-        return _opcode;
-      }
+        Opcode = opcode;
+        _rawData = rawData;
     }
 
     #endregion
@@ -94,99 +111,60 @@ namespace WebSocketSharp
     #region Public Properties
 
     /// <summary>
-    /// Gets the message data as a <see cref="string"/>.
+    ///     Gets the message data as a <see cref="string" />.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   A <see cref="string"/> that represents the message data
-    ///   if the message type is text or ping.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if the message type is binary or
-    ///   the message data could not be UTF-8-decoded.
-    ///   </para>
+    ///     A <see cref="string" /> that represents the message data if its type is
+    ///     text or ping and if decoding it to a string has successfully done;
+    ///     otherwise, <see langword="null" />.
     /// </value>
-    public string Data {
-      get {
-        setData ();
-
-        return _data;
-      }
-    }
-
-    /// <summary>
-    /// Gets a value indicating whether the message type is binary.
-    /// </summary>
-    /// <value>
-    /// <c>true</c> if the message type is binary; otherwise, <c>false</c>.
-    /// </value>
-    public bool IsBinary {
-      get {
-        return _opcode == Opcode.Binary;
-      }
-    }
-
-    /// <summary>
-    /// Gets a value indicating whether the message type is ping.
-    /// </summary>
-    /// <value>
-    /// <c>true</c> if the message type is ping; otherwise, <c>false</c>.
-    /// </value>
-    public bool IsPing {
-      get {
-        return _opcode == Opcode.Ping;
-      }
-    }
-
-    /// <summary>
-    /// Gets a value indicating whether the message type is text.
-    /// </summary>
-    /// <value>
-    /// <c>true</c> if the message type is text; otherwise, <c>false</c>.
-    /// </value>
-    public bool IsText {
-      get {
-        return _opcode == Opcode.Text;
-      }
-    }
-
-    /// <summary>
-    /// Gets the message data as an array of <see cref="byte"/>.
-    /// </summary>
-    /// <value>
-    /// An array of <see cref="byte"/> that represents the message data.
-    /// </value>
-    public byte[] RawData {
-      get {
-        setData ();
-
-        return _rawData;
-      }
-    }
-
-    #endregion
-
-    #region Private Methods
-
-    private void setData ()
+    public string Data
     {
-      if (_dataSet)
-        return;
+        get
+        {
+            setData();
+            return _data;
+        }
+    }
 
-      if (_opcode == Opcode.Binary) {
-        _dataSet = true;
+    /// <summary>
+    ///     Gets a value indicating whether the message type is binary.
+    /// </summary>
+    /// <value>
+    ///     <c>true</c> if the message type is binary; otherwise, <c>false</c>.
+    /// </value>
+    public bool IsBinary => Opcode == Opcode.Binary;
 
-        return;
-      }
+    /// <summary>
+    ///     Gets a value indicating whether the message type is ping.
+    /// </summary>
+    /// <value>
+    ///     <c>true</c> if the message type is ping; otherwise, <c>false</c>.
+    /// </value>
+    public bool IsPing => Opcode == Opcode.Ping;
 
-      string data;
+    /// <summary>
+    ///     Gets a value indicating whether the message type is text.
+    /// </summary>
+    /// <value>
+    ///     <c>true</c> if the message type is text; otherwise, <c>false</c>.
+    /// </value>
+    public bool IsText => Opcode == Opcode.Text;
 
-      if (_rawData.TryGetUTF8DecodedString (out data))
-        _data = data;
-
-      _dataSet = true;
+    /// <summary>
+    ///     Gets the message data as an array of <see cref="byte" />.
+    /// </summary>
+    /// <value>
+    ///     An array of <see cref="byte" /> that represents the message data.
+    /// </value>
+    public byte[] RawData
+    {
+        get
+        {
+            setData();
+            return _rawData;
+        }
     }
 
     #endregion
-  }
 }

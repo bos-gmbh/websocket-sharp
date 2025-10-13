@@ -1,14 +1,15 @@
 #region License
+
 /*
  * HttpUtility.cs
  *
- * This code is derived from HttpUtility.cs (System.Net) of Mono
+ * This code is derived from System.Net.HttpUtility.cs of Mono
  * (http://www.mono-project.com).
  *
  * The MIT License
  *
  * Copyright (c) 2005-2009 Novell, Inc. (http://www.novell.com)
- * Copyright (c) 2012-2024 sta.blockhead
+ * Copyright (c) 2012-2016 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,9 +29,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 #region Authors
+
 /*
  * Authors:
  * - Patrik Torstensson <Patrik.Torstensson@labs2.com>
@@ -38,6 +41,7 @@
  * - Tim Coleman <tim@timcoleman.com>
  * - Gonzalo Paniagua Javier <gonzalo@ximian.com>
  */
+
 #endregion
 
 using System;
@@ -49,1189 +53,1285 @@ using System.IO;
 using System.Security.Principal;
 using System.Text;
 
-namespace WebSocketSharp.Net
+namespace WebSocketSharp.Net;
+#pragma warning disable CS8625
+internal sealed class HttpUtility
 {
-  internal static class HttpUtility
-  {
     #region Private Fields
 
     private static Dictionary<string, char> _entities;
-    private static char[]                   _hexChars;
-    private static object                   _sync;
-
-    #endregion
-
-    #region Static Constructor
-
-    static HttpUtility ()
-    {
-      _hexChars = "0123456789ABCDEF".ToCharArray ();
-      _sync = new object ();
-    }
+    private static readonly char[] _hexChars = "0123456789abcdef".ToCharArray();
+    private static readonly object _sync = new();
 
     #endregion
 
     #region Private Methods
 
-    private static Dictionary<string, char> getEntities ()
+    private static int getChar(byte[] bytes, int offset, int length)
     {
-      lock (_sync) {
-        if (_entities == null)
-          initEntities ();
+        var val = 0;
+        var end = length + offset;
+        for (var i = offset; i < end; i++)
+        {
+            var current = getInt(bytes[i]);
+            if (current == -1)
+                return -1;
 
-        return _entities;
-      }
-    }
-
-    private static int getNumber (char c)
-    {
-      if (c >= '0' && c <= '9')
-        return c - '0';
-
-      if (c >= 'A' && c <= 'F')
-        return c - 'A' + 10;
-
-      if (c >= 'a' && c <= 'f')
-        return c - 'a' + 10;
-
-      return -1;
-    }
-
-    private static int getNumber (byte[] bytes, int offset, int count)
-    {
-      var ret = 0;
-
-      var end = offset + count - 1;
-
-      for (var i = offset; i <= end; i++) {
-        var c = (char) bytes[i];
-        var n = getNumber (c);
-
-        if (n == -1)
-          return -1;
-
-        ret = (ret << 4) + n;
-      }
-
-      return ret;
-    }
-
-    private static int getNumber (string s, int offset, int count)
-    {
-      var ret = 0;
-
-      var end = offset + count - 1;
-
-      for (var i = offset; i <= end; i++) {
-        var c = s[i];
-        var n = getNumber (c);
-
-        if (n == -1)
-          return -1;
-
-        ret = (ret << 4) + n;
-      }
-
-      return ret;
-    }
-
-    private static string htmlDecode (string s)
-    {
-      var buff = new StringBuilder ();
-
-      // 0: None
-      // 1: Right after '&'
-      // 2: Between '&' and ';' but no NCR
-      // 3: '#' found after '&' and getting numbers
-      // 4: 'x' found after '#' and getting numbers
-      var state = 0;
-
-      var reference = new StringBuilder ();
-      var num = 0;
-
-      foreach (var c in s) {
-        if (state == 0) {
-          if (c == '&') {
-            reference.Append ('&');
-
-            state = 1;
-
-            continue;
-          }
-
-          buff.Append (c);
-
-          continue;
+            val = (val << 4) + current;
         }
 
-        if (c == '&') {
-          buff.Append (reference.ToString ());
+        return val;
+    }
 
-          reference.Length = 0;
+    private static int getChar(string s, int offset, int length)
+    {
+        var val = 0;
+        var end = length + offset;
+        for (var i = offset; i < end; i++)
+        {
+            var c = s[i];
+            if (c > 127)
+                return -1;
 
-          reference.Append ('&');
+            var current = getInt((byte)c);
+            if (current == -1)
+                return -1;
 
-          state = 1;
-
-          continue;
+            val = (val << 4) + current;
         }
 
-        reference.Append (c);
+        return val;
+    }
 
-        if (state == 1) {
-          if (c == ';') {
-            buff.Append (reference.ToString ());
+    private static char[] getChars(MemoryStream buffer, Encoding encoding)
+    {
+        return encoding.GetChars(buffer.GetBuffer(), 0, (int)buffer.Length);
+    }
 
-            reference.Length = 0;
-            state = 0;
+    private static Dictionary<string, char> getEntities()
+    {
+        lock (_sync)
+        {
+            if (_entities == null)
+                initEntities();
 
-            continue;
-          }
+            return _entities;
+        }
+    }
 
-          num = 0;
-          state = c == '#' ? 3 : 2;
+    private static int getInt(byte b)
+    {
+        var c = (char)b;
+        return c >= '0' && c <= '9'
+            ? c - '0'
+            : c >= 'a' && c <= 'f'
+                ? c - 'a' + 10
+                : c >= 'A' && c <= 'F'
+                    ? c - 'A' + 10
+                    : -1;
+    }
 
-          continue;
+    private static void initEntities()
+    {
+        // Build the dictionary of HTML entity references.
+        // This list comes from the HTML 4.01 W3C recommendation.
+        _entities = new Dictionary<string, char>();
+        _entities.Add("nbsp", '\u00A0');
+        _entities.Add("iexcl", '\u00A1');
+        _entities.Add("cent", '\u00A2');
+        _entities.Add("pound", '\u00A3');
+        _entities.Add("curren", '\u00A4');
+        _entities.Add("yen", '\u00A5');
+        _entities.Add("brvbar", '\u00A6');
+        _entities.Add("sect", '\u00A7');
+        _entities.Add("uml", '\u00A8');
+        _entities.Add("copy", '\u00A9');
+        _entities.Add("ordf", '\u00AA');
+        _entities.Add("laquo", '\u00AB');
+        _entities.Add("not", '\u00AC');
+        _entities.Add("shy", '\u00AD');
+        _entities.Add("reg", '\u00AE');
+        _entities.Add("macr", '\u00AF');
+        _entities.Add("deg", '\u00B0');
+        _entities.Add("plusmn", '\u00B1');
+        _entities.Add("sup2", '\u00B2');
+        _entities.Add("sup3", '\u00B3');
+        _entities.Add("acute", '\u00B4');
+        _entities.Add("micro", '\u00B5');
+        _entities.Add("para", '\u00B6');
+        _entities.Add("middot", '\u00B7');
+        _entities.Add("cedil", '\u00B8');
+        _entities.Add("sup1", '\u00B9');
+        _entities.Add("ordm", '\u00BA');
+        _entities.Add("raquo", '\u00BB');
+        _entities.Add("frac14", '\u00BC');
+        _entities.Add("frac12", '\u00BD');
+        _entities.Add("frac34", '\u00BE');
+        _entities.Add("iquest", '\u00BF');
+        _entities.Add("Agrave", '\u00C0');
+        _entities.Add("Aacute", '\u00C1');
+        _entities.Add("Acirc", '\u00C2');
+        _entities.Add("Atilde", '\u00C3');
+        _entities.Add("Auml", '\u00C4');
+        _entities.Add("Aring", '\u00C5');
+        _entities.Add("AElig", '\u00C6');
+        _entities.Add("Ccedil", '\u00C7');
+        _entities.Add("Egrave", '\u00C8');
+        _entities.Add("Eacute", '\u00C9');
+        _entities.Add("Ecirc", '\u00CA');
+        _entities.Add("Euml", '\u00CB');
+        _entities.Add("Igrave", '\u00CC');
+        _entities.Add("Iacute", '\u00CD');
+        _entities.Add("Icirc", '\u00CE');
+        _entities.Add("Iuml", '\u00CF');
+        _entities.Add("ETH", '\u00D0');
+        _entities.Add("Ntilde", '\u00D1');
+        _entities.Add("Ograve", '\u00D2');
+        _entities.Add("Oacute", '\u00D3');
+        _entities.Add("Ocirc", '\u00D4');
+        _entities.Add("Otilde", '\u00D5');
+        _entities.Add("Ouml", '\u00D6');
+        _entities.Add("times", '\u00D7');
+        _entities.Add("Oslash", '\u00D8');
+        _entities.Add("Ugrave", '\u00D9');
+        _entities.Add("Uacute", '\u00DA');
+        _entities.Add("Ucirc", '\u00DB');
+        _entities.Add("Uuml", '\u00DC');
+        _entities.Add("Yacute", '\u00DD');
+        _entities.Add("THORN", '\u00DE');
+        _entities.Add("szlig", '\u00DF');
+        _entities.Add("agrave", '\u00E0');
+        _entities.Add("aacute", '\u00E1');
+        _entities.Add("acirc", '\u00E2');
+        _entities.Add("atilde", '\u00E3');
+        _entities.Add("auml", '\u00E4');
+        _entities.Add("aring", '\u00E5');
+        _entities.Add("aelig", '\u00E6');
+        _entities.Add("ccedil", '\u00E7');
+        _entities.Add("egrave", '\u00E8');
+        _entities.Add("eacute", '\u00E9');
+        _entities.Add("ecirc", '\u00EA');
+        _entities.Add("euml", '\u00EB');
+        _entities.Add("igrave", '\u00EC');
+        _entities.Add("iacute", '\u00ED');
+        _entities.Add("icirc", '\u00EE');
+        _entities.Add("iuml", '\u00EF');
+        _entities.Add("eth", '\u00F0');
+        _entities.Add("ntilde", '\u00F1');
+        _entities.Add("ograve", '\u00F2');
+        _entities.Add("oacute", '\u00F3');
+        _entities.Add("ocirc", '\u00F4');
+        _entities.Add("otilde", '\u00F5');
+        _entities.Add("ouml", '\u00F6');
+        _entities.Add("divide", '\u00F7');
+        _entities.Add("oslash", '\u00F8');
+        _entities.Add("ugrave", '\u00F9');
+        _entities.Add("uacute", '\u00FA');
+        _entities.Add("ucirc", '\u00FB');
+        _entities.Add("uuml", '\u00FC');
+        _entities.Add("yacute", '\u00FD');
+        _entities.Add("thorn", '\u00FE');
+        _entities.Add("yuml", '\u00FF');
+        _entities.Add("fnof", '\u0192');
+        _entities.Add("Alpha", '\u0391');
+        _entities.Add("Beta", '\u0392');
+        _entities.Add("Gamma", '\u0393');
+        _entities.Add("Delta", '\u0394');
+        _entities.Add("Epsilon", '\u0395');
+        _entities.Add("Zeta", '\u0396');
+        _entities.Add("Eta", '\u0397');
+        _entities.Add("Theta", '\u0398');
+        _entities.Add("Iota", '\u0399');
+        _entities.Add("Kappa", '\u039A');
+        _entities.Add("Lambda", '\u039B');
+        _entities.Add("Mu", '\u039C');
+        _entities.Add("Nu", '\u039D');
+        _entities.Add("Xi", '\u039E');
+        _entities.Add("Omicron", '\u039F');
+        _entities.Add("Pi", '\u03A0');
+        _entities.Add("Rho", '\u03A1');
+        _entities.Add("Sigma", '\u03A3');
+        _entities.Add("Tau", '\u03A4');
+        _entities.Add("Upsilon", '\u03A5');
+        _entities.Add("Phi", '\u03A6');
+        _entities.Add("Chi", '\u03A7');
+        _entities.Add("Psi", '\u03A8');
+        _entities.Add("Omega", '\u03A9');
+        _entities.Add("alpha", '\u03B1');
+        _entities.Add("beta", '\u03B2');
+        _entities.Add("gamma", '\u03B3');
+        _entities.Add("delta", '\u03B4');
+        _entities.Add("epsilon", '\u03B5');
+        _entities.Add("zeta", '\u03B6');
+        _entities.Add("eta", '\u03B7');
+        _entities.Add("theta", '\u03B8');
+        _entities.Add("iota", '\u03B9');
+        _entities.Add("kappa", '\u03BA');
+        _entities.Add("lambda", '\u03BB');
+        _entities.Add("mu", '\u03BC');
+        _entities.Add("nu", '\u03BD');
+        _entities.Add("xi", '\u03BE');
+        _entities.Add("omicron", '\u03BF');
+        _entities.Add("pi", '\u03C0');
+        _entities.Add("rho", '\u03C1');
+        _entities.Add("sigmaf", '\u03C2');
+        _entities.Add("sigma", '\u03C3');
+        _entities.Add("tau", '\u03C4');
+        _entities.Add("upsilon", '\u03C5');
+        _entities.Add("phi", '\u03C6');
+        _entities.Add("chi", '\u03C7');
+        _entities.Add("psi", '\u03C8');
+        _entities.Add("omega", '\u03C9');
+        _entities.Add("thetasym", '\u03D1');
+        _entities.Add("upsih", '\u03D2');
+        _entities.Add("piv", '\u03D6');
+        _entities.Add("bull", '\u2022');
+        _entities.Add("hellip", '\u2026');
+        _entities.Add("prime", '\u2032');
+        _entities.Add("Prime", '\u2033');
+        _entities.Add("oline", '\u203E');
+        _entities.Add("frasl", '\u2044');
+        _entities.Add("weierp", '\u2118');
+        _entities.Add("image", '\u2111');
+        _entities.Add("real", '\u211C');
+        _entities.Add("trade", '\u2122');
+        _entities.Add("alefsym", '\u2135');
+        _entities.Add("larr", '\u2190');
+        _entities.Add("uarr", '\u2191');
+        _entities.Add("rarr", '\u2192');
+        _entities.Add("darr", '\u2193');
+        _entities.Add("harr", '\u2194');
+        _entities.Add("crarr", '\u21B5');
+        _entities.Add("lArr", '\u21D0');
+        _entities.Add("uArr", '\u21D1');
+        _entities.Add("rArr", '\u21D2');
+        _entities.Add("dArr", '\u21D3');
+        _entities.Add("hArr", '\u21D4');
+        _entities.Add("forall", '\u2200');
+        _entities.Add("part", '\u2202');
+        _entities.Add("exist", '\u2203');
+        _entities.Add("empty", '\u2205');
+        _entities.Add("nabla", '\u2207');
+        _entities.Add("isin", '\u2208');
+        _entities.Add("notin", '\u2209');
+        _entities.Add("ni", '\u220B');
+        _entities.Add("prod", '\u220F');
+        _entities.Add("sum", '\u2211');
+        _entities.Add("minus", '\u2212');
+        _entities.Add("lowast", '\u2217');
+        _entities.Add("radic", '\u221A');
+        _entities.Add("prop", '\u221D');
+        _entities.Add("infin", '\u221E');
+        _entities.Add("ang", '\u2220');
+        _entities.Add("and", '\u2227');
+        _entities.Add("or", '\u2228');
+        _entities.Add("cap", '\u2229');
+        _entities.Add("cup", '\u222A');
+        _entities.Add("int", '\u222B');
+        _entities.Add("there4", '\u2234');
+        _entities.Add("sim", '\u223C');
+        _entities.Add("cong", '\u2245');
+        _entities.Add("asymp", '\u2248');
+        _entities.Add("ne", '\u2260');
+        _entities.Add("equiv", '\u2261');
+        _entities.Add("le", '\u2264');
+        _entities.Add("ge", '\u2265');
+        _entities.Add("sub", '\u2282');
+        _entities.Add("sup", '\u2283');
+        _entities.Add("nsub", '\u2284');
+        _entities.Add("sube", '\u2286');
+        _entities.Add("supe", '\u2287');
+        _entities.Add("oplus", '\u2295');
+        _entities.Add("otimes", '\u2297');
+        _entities.Add("perp", '\u22A5');
+        _entities.Add("sdot", '\u22C5');
+        _entities.Add("lceil", '\u2308');
+        _entities.Add("rceil", '\u2309');
+        _entities.Add("lfloor", '\u230A');
+        _entities.Add("rfloor", '\u230B');
+        _entities.Add("lang", '\u2329');
+        _entities.Add("rang", '\u232A');
+        _entities.Add("loz", '\u25CA');
+        _entities.Add("spades", '\u2660');
+        _entities.Add("clubs", '\u2663');
+        _entities.Add("hearts", '\u2665');
+        _entities.Add("diams", '\u2666');
+        _entities.Add("quot", '\u0022');
+        _entities.Add("amp", '\u0026');
+        _entities.Add("lt", '\u003C');
+        _entities.Add("gt", '\u003E');
+        _entities.Add("OElig", '\u0152');
+        _entities.Add("oelig", '\u0153');
+        _entities.Add("Scaron", '\u0160');
+        _entities.Add("scaron", '\u0161');
+        _entities.Add("Yuml", '\u0178');
+        _entities.Add("circ", '\u02C6');
+        _entities.Add("tilde", '\u02DC');
+        _entities.Add("ensp", '\u2002');
+        _entities.Add("emsp", '\u2003');
+        _entities.Add("thinsp", '\u2009');
+        _entities.Add("zwnj", '\u200C');
+        _entities.Add("zwj", '\u200D');
+        _entities.Add("lrm", '\u200E');
+        _entities.Add("rlm", '\u200F');
+        _entities.Add("ndash", '\u2013');
+        _entities.Add("mdash", '\u2014');
+        _entities.Add("lsquo", '\u2018');
+        _entities.Add("rsquo", '\u2019');
+        _entities.Add("sbquo", '\u201A');
+        _entities.Add("ldquo", '\u201C');
+        _entities.Add("rdquo", '\u201D');
+        _entities.Add("bdquo", '\u201E');
+        _entities.Add("dagger", '\u2020');
+        _entities.Add("Dagger", '\u2021');
+        _entities.Add("permil", '\u2030');
+        _entities.Add("lsaquo", '\u2039');
+        _entities.Add("rsaquo", '\u203A');
+        _entities.Add("euro", '\u20AC');
+    }
+
+    private static bool notEncoded(char c)
+    {
+        return c == '!' ||
+               c == '\'' ||
+               c == '(' ||
+               c == ')' ||
+               c == '*' ||
+               c == '-' ||
+               c == '.' ||
+               c == '_';
+    }
+
+    private static void urlEncode(char c, Stream result, bool unicode)
+    {
+        if (c > 255)
+        {
+            // FIXME: What happens when there is an internal error?
+            //if (!unicode)
+            //  throw new ArgumentOutOfRangeException ("c", c, "Greater than 255.");
+
+            result.WriteByte((byte)'%');
+            result.WriteByte((byte)'u');
+
+            var i = (int)c;
+            var idx = i >> 12;
+            result.WriteByte((byte)_hexChars[idx]);
+
+            idx = (i >> 8) & 0x0F;
+            result.WriteByte((byte)_hexChars[idx]);
+
+            idx = (i >> 4) & 0x0F;
+            result.WriteByte((byte)_hexChars[idx]);
+
+            idx = i & 0x0F;
+            result.WriteByte((byte)_hexChars[idx]);
+
+            return;
         }
 
-        if (state == 2) {
-          if (c == ';') {
-            var entity = reference.ToString ();
-            var name = entity.Substring (1, entity.Length - 2);
+        if (c > ' ' && notEncoded(c))
+        {
+            result.WriteByte((byte)c);
+            return;
+        }
 
-            var entities = getEntities ();
+        if (c == ' ')
+        {
+            result.WriteByte((byte)'+');
+            return;
+        }
 
-            if (entities.ContainsKey (name))
-              buff.Append (entities[name]);
+        if (c < '0' ||
+            (c < 'A' && c > '9') ||
+            (c > 'Z' && c < 'a') ||
+            c > 'z')
+        {
+            if (unicode && c > 127)
+            {
+                result.WriteByte((byte)'%');
+                result.WriteByte((byte)'u');
+                result.WriteByte((byte)'0');
+                result.WriteByte((byte)'0');
+            }
             else
-              buff.Append (entity);
+            {
+                result.WriteByte((byte)'%');
+            }
 
-            reference.Length = 0;
-            state = 0;
+            var i = (int)c;
+            var idx = i >> 4;
+            result.WriteByte((byte)_hexChars[idx]);
 
-            continue;
-          }
+            idx = i & 0x0F;
+            result.WriteByte((byte)_hexChars[idx]);
 
-          continue;
+            return;
         }
 
-        if (state == 3) {
-          if (c == ';') {
-            if (reference.Length > 3 && num < 65536)
-              buff.Append ((char) num);
-            else
-              buff.Append (reference.ToString ());
-
-            reference.Length = 0;
-            state = 0;
-
-            continue;
-          }
-
-          if (c == 'x') {
-            state = reference.Length == 3 ? 4 : 2;
-
-            continue;
-          }
-
-          if (!isNumeric (c)) {
-            state = 2;
-
-            continue;
-          }
-
-          num = num * 10 + (c - '0');
-
-          continue;
-        }
-
-        if (state == 4) {
-          if (c == ';') {
-            if (reference.Length > 4 && num < 65536)
-              buff.Append ((char) num);
-            else
-              buff.Append (reference.ToString ());
-
-            reference.Length = 0;
-            state = 0;
-
-            continue;
-          }
-
-          var n = getNumber (c);
-
-          if (n == -1) {
-            state = 2;
-
-            continue;
-          }
-
-          num = (num << 4) + n;
-        }
-      }
-
-      if (reference.Length > 0)
-        buff.Append (reference.ToString ());
-
-      return buff.ToString ();
+        result.WriteByte((byte)c);
     }
 
-    /// <summary>
-    /// Converts the specified string to an HTML-encoded string.
-    /// </summary>
-    /// <remarks>
-    ///   <para>
-    ///   This method starts encoding with a NCR from the character code 160
-    ///   but does not stop at the character code 255.
-    ///   </para>
-    ///   <para>
-    ///   One reason is the unicode characters &#65308; and &#65310; that
-    ///   look like &lt; and &gt;.
-    ///   </para>
-    /// </remarks>
-    /// <returns>
-    /// A <see cref="string"/> that represents an encoded string.
-    /// </returns>
-    /// <param name="s">
-    /// A <see cref="string"/> to encode.
-    /// </param>
-    /// <param name="minimal">
-    /// A <see cref="bool"/>: <c>true</c> if encodes without a NCR;
-    /// otherwise, <c>false</c>.
-    /// </param>
-    private static string htmlEncode (string s, bool minimal)
+    private static void urlPathEncode(char c, Stream result)
     {
-      var buff = new StringBuilder ();
+        if (c < 33 || c > 126)
+        {
+            var bytes = Encoding.UTF8.GetBytes(c.ToString());
+            foreach (var b in bytes)
+            {
+                result.WriteByte((byte)'%');
 
-      foreach (var c in s) {
-        if (c == '"') {
-          buff.Append ("&quot;");
+                var i = (int)b;
+                var idx = i >> 4;
+                result.WriteByte((byte)_hexChars[idx]);
 
-          continue;
+                idx = i & 0x0F;
+                result.WriteByte((byte)_hexChars[idx]);
+            }
+
+            return;
         }
 
-        if (c == '&') {
-          buff.Append ("&amp;");
+        if (c == ' ')
+        {
+            result.WriteByte((byte)'%');
+            result.WriteByte((byte)'2');
+            result.WriteByte((byte)'0');
 
-          continue;
+            return;
         }
 
-        if (c == '<') {
-          buff.Append ("&lt;");
-
-          continue;
-        }
-
-        if (c == '>') {
-          buff.Append ("&gt;");
-
-          continue;
-        }
-
-        if (c > 159) {
-          if (!minimal) {
-            var val = String.Format ("&#{0};", (int) c);
-
-            buff.Append (val);
-
-            continue;
-          }
-        }
-
-        buff.Append (c);
-      }
-
-      return buff.ToString ();
+        result.WriteByte((byte)c);
     }
 
-    /// <summary>
-    /// Initializes the _entities field.
-    /// </summary>
-    /// <remarks>
-    /// This method builds a dictionary of HTML character entity references.
-    /// This dictionary comes from the HTML 4.01 W3C recommendation.
-    /// </remarks>
-    private static void initEntities ()
+    private static void writeCharBytes(char c, IList buffer, Encoding encoding)
     {
-      _entities = new Dictionary<string, char> ();
+        if (c > 255)
+        {
+            foreach (var b in encoding.GetBytes(new[] { c }))
+                buffer.Add(b);
 
-      _entities.Add ("nbsp", '\u00A0');
-      _entities.Add ("iexcl", '\u00A1');
-      _entities.Add ("cent", '\u00A2');
-      _entities.Add ("pound", '\u00A3');
-      _entities.Add ("curren", '\u00A4');
-      _entities.Add ("yen", '\u00A5');
-      _entities.Add ("brvbar", '\u00A6');
-      _entities.Add ("sect", '\u00A7');
-      _entities.Add ("uml", '\u00A8');
-      _entities.Add ("copy", '\u00A9');
-      _entities.Add ("ordf", '\u00AA');
-      _entities.Add ("laquo", '\u00AB');
-      _entities.Add ("not", '\u00AC');
-      _entities.Add ("shy", '\u00AD');
-      _entities.Add ("reg", '\u00AE');
-      _entities.Add ("macr", '\u00AF');
-      _entities.Add ("deg", '\u00B0');
-      _entities.Add ("plusmn", '\u00B1');
-      _entities.Add ("sup2", '\u00B2');
-      _entities.Add ("sup3", '\u00B3');
-      _entities.Add ("acute", '\u00B4');
-      _entities.Add ("micro", '\u00B5');
-      _entities.Add ("para", '\u00B6');
-      _entities.Add ("middot", '\u00B7');
-      _entities.Add ("cedil", '\u00B8');
-      _entities.Add ("sup1", '\u00B9');
-      _entities.Add ("ordm", '\u00BA');
-      _entities.Add ("raquo", '\u00BB');
-      _entities.Add ("frac14", '\u00BC');
-      _entities.Add ("frac12", '\u00BD');
-      _entities.Add ("frac34", '\u00BE');
-      _entities.Add ("iquest", '\u00BF');
-      _entities.Add ("Agrave", '\u00C0');
-      _entities.Add ("Aacute", '\u00C1');
-      _entities.Add ("Acirc", '\u00C2');
-      _entities.Add ("Atilde", '\u00C3');
-      _entities.Add ("Auml", '\u00C4');
-      _entities.Add ("Aring", '\u00C5');
-      _entities.Add ("AElig", '\u00C6');
-      _entities.Add ("Ccedil", '\u00C7');
-      _entities.Add ("Egrave", '\u00C8');
-      _entities.Add ("Eacute", '\u00C9');
-      _entities.Add ("Ecirc", '\u00CA');
-      _entities.Add ("Euml", '\u00CB');
-      _entities.Add ("Igrave", '\u00CC');
-      _entities.Add ("Iacute", '\u00CD');
-      _entities.Add ("Icirc", '\u00CE');
-      _entities.Add ("Iuml", '\u00CF');
-      _entities.Add ("ETH", '\u00D0');
-      _entities.Add ("Ntilde", '\u00D1');
-      _entities.Add ("Ograve", '\u00D2');
-      _entities.Add ("Oacute", '\u00D3');
-      _entities.Add ("Ocirc", '\u00D4');
-      _entities.Add ("Otilde", '\u00D5');
-      _entities.Add ("Ouml", '\u00D6');
-      _entities.Add ("times", '\u00D7');
-      _entities.Add ("Oslash", '\u00D8');
-      _entities.Add ("Ugrave", '\u00D9');
-      _entities.Add ("Uacute", '\u00DA');
-      _entities.Add ("Ucirc", '\u00DB');
-      _entities.Add ("Uuml", '\u00DC');
-      _entities.Add ("Yacute", '\u00DD');
-      _entities.Add ("THORN", '\u00DE');
-      _entities.Add ("szlig", '\u00DF');
-      _entities.Add ("agrave", '\u00E0');
-      _entities.Add ("aacute", '\u00E1');
-      _entities.Add ("acirc", '\u00E2');
-      _entities.Add ("atilde", '\u00E3');
-      _entities.Add ("auml", '\u00E4');
-      _entities.Add ("aring", '\u00E5');
-      _entities.Add ("aelig", '\u00E6');
-      _entities.Add ("ccedil", '\u00E7');
-      _entities.Add ("egrave", '\u00E8');
-      _entities.Add ("eacute", '\u00E9');
-      _entities.Add ("ecirc", '\u00EA');
-      _entities.Add ("euml", '\u00EB');
-      _entities.Add ("igrave", '\u00EC');
-      _entities.Add ("iacute", '\u00ED');
-      _entities.Add ("icirc", '\u00EE');
-      _entities.Add ("iuml", '\u00EF');
-      _entities.Add ("eth", '\u00F0');
-      _entities.Add ("ntilde", '\u00F1');
-      _entities.Add ("ograve", '\u00F2');
-      _entities.Add ("oacute", '\u00F3');
-      _entities.Add ("ocirc", '\u00F4');
-      _entities.Add ("otilde", '\u00F5');
-      _entities.Add ("ouml", '\u00F6');
-      _entities.Add ("divide", '\u00F7');
-      _entities.Add ("oslash", '\u00F8');
-      _entities.Add ("ugrave", '\u00F9');
-      _entities.Add ("uacute", '\u00FA');
-      _entities.Add ("ucirc", '\u00FB');
-      _entities.Add ("uuml", '\u00FC');
-      _entities.Add ("yacute", '\u00FD');
-      _entities.Add ("thorn", '\u00FE');
-      _entities.Add ("yuml", '\u00FF');
-      _entities.Add ("fnof", '\u0192');
-      _entities.Add ("Alpha", '\u0391');
-      _entities.Add ("Beta", '\u0392');
-      _entities.Add ("Gamma", '\u0393');
-      _entities.Add ("Delta", '\u0394');
-      _entities.Add ("Epsilon", '\u0395');
-      _entities.Add ("Zeta", '\u0396');
-      _entities.Add ("Eta", '\u0397');
-      _entities.Add ("Theta", '\u0398');
-      _entities.Add ("Iota", '\u0399');
-      _entities.Add ("Kappa", '\u039A');
-      _entities.Add ("Lambda", '\u039B');
-      _entities.Add ("Mu", '\u039C');
-      _entities.Add ("Nu", '\u039D');
-      _entities.Add ("Xi", '\u039E');
-      _entities.Add ("Omicron", '\u039F');
-      _entities.Add ("Pi", '\u03A0');
-      _entities.Add ("Rho", '\u03A1');
-      _entities.Add ("Sigma", '\u03A3');
-      _entities.Add ("Tau", '\u03A4');
-      _entities.Add ("Upsilon", '\u03A5');
-      _entities.Add ("Phi", '\u03A6');
-      _entities.Add ("Chi", '\u03A7');
-      _entities.Add ("Psi", '\u03A8');
-      _entities.Add ("Omega", '\u03A9');
-      _entities.Add ("alpha", '\u03B1');
-      _entities.Add ("beta", '\u03B2');
-      _entities.Add ("gamma", '\u03B3');
-      _entities.Add ("delta", '\u03B4');
-      _entities.Add ("epsilon", '\u03B5');
-      _entities.Add ("zeta", '\u03B6');
-      _entities.Add ("eta", '\u03B7');
-      _entities.Add ("theta", '\u03B8');
-      _entities.Add ("iota", '\u03B9');
-      _entities.Add ("kappa", '\u03BA');
-      _entities.Add ("lambda", '\u03BB');
-      _entities.Add ("mu", '\u03BC');
-      _entities.Add ("nu", '\u03BD');
-      _entities.Add ("xi", '\u03BE');
-      _entities.Add ("omicron", '\u03BF');
-      _entities.Add ("pi", '\u03C0');
-      _entities.Add ("rho", '\u03C1');
-      _entities.Add ("sigmaf", '\u03C2');
-      _entities.Add ("sigma", '\u03C3');
-      _entities.Add ("tau", '\u03C4');
-      _entities.Add ("upsilon", '\u03C5');
-      _entities.Add ("phi", '\u03C6');
-      _entities.Add ("chi", '\u03C7');
-      _entities.Add ("psi", '\u03C8');
-      _entities.Add ("omega", '\u03C9');
-      _entities.Add ("thetasym", '\u03D1');
-      _entities.Add ("upsih", '\u03D2');
-      _entities.Add ("piv", '\u03D6');
-      _entities.Add ("bull", '\u2022');
-      _entities.Add ("hellip", '\u2026');
-      _entities.Add ("prime", '\u2032');
-      _entities.Add ("Prime", '\u2033');
-      _entities.Add ("oline", '\u203E');
-      _entities.Add ("frasl", '\u2044');
-      _entities.Add ("weierp", '\u2118');
-      _entities.Add ("image", '\u2111');
-      _entities.Add ("real", '\u211C');
-      _entities.Add ("trade", '\u2122');
-      _entities.Add ("alefsym", '\u2135');
-      _entities.Add ("larr", '\u2190');
-      _entities.Add ("uarr", '\u2191');
-      _entities.Add ("rarr", '\u2192');
-      _entities.Add ("darr", '\u2193');
-      _entities.Add ("harr", '\u2194');
-      _entities.Add ("crarr", '\u21B5');
-      _entities.Add ("lArr", '\u21D0');
-      _entities.Add ("uArr", '\u21D1');
-      _entities.Add ("rArr", '\u21D2');
-      _entities.Add ("dArr", '\u21D3');
-      _entities.Add ("hArr", '\u21D4');
-      _entities.Add ("forall", '\u2200');
-      _entities.Add ("part", '\u2202');
-      _entities.Add ("exist", '\u2203');
-      _entities.Add ("empty", '\u2205');
-      _entities.Add ("nabla", '\u2207');
-      _entities.Add ("isin", '\u2208');
-      _entities.Add ("notin", '\u2209');
-      _entities.Add ("ni", '\u220B');
-      _entities.Add ("prod", '\u220F');
-      _entities.Add ("sum", '\u2211');
-      _entities.Add ("minus", '\u2212');
-      _entities.Add ("lowast", '\u2217');
-      _entities.Add ("radic", '\u221A');
-      _entities.Add ("prop", '\u221D');
-      _entities.Add ("infin", '\u221E');
-      _entities.Add ("ang", '\u2220');
-      _entities.Add ("and", '\u2227');
-      _entities.Add ("or", '\u2228');
-      _entities.Add ("cap", '\u2229');
-      _entities.Add ("cup", '\u222A');
-      _entities.Add ("int", '\u222B');
-      _entities.Add ("there4", '\u2234');
-      _entities.Add ("sim", '\u223C');
-      _entities.Add ("cong", '\u2245');
-      _entities.Add ("asymp", '\u2248');
-      _entities.Add ("ne", '\u2260');
-      _entities.Add ("equiv", '\u2261');
-      _entities.Add ("le", '\u2264');
-      _entities.Add ("ge", '\u2265');
-      _entities.Add ("sub", '\u2282');
-      _entities.Add ("sup", '\u2283');
-      _entities.Add ("nsub", '\u2284');
-      _entities.Add ("sube", '\u2286');
-      _entities.Add ("supe", '\u2287');
-      _entities.Add ("oplus", '\u2295');
-      _entities.Add ("otimes", '\u2297');
-      _entities.Add ("perp", '\u22A5');
-      _entities.Add ("sdot", '\u22C5');
-      _entities.Add ("lceil", '\u2308');
-      _entities.Add ("rceil", '\u2309');
-      _entities.Add ("lfloor", '\u230A');
-      _entities.Add ("rfloor", '\u230B');
-      _entities.Add ("lang", '\u2329');
-      _entities.Add ("rang", '\u232A');
-      _entities.Add ("loz", '\u25CA');
-      _entities.Add ("spades", '\u2660');
-      _entities.Add ("clubs", '\u2663');
-      _entities.Add ("hearts", '\u2665');
-      _entities.Add ("diams", '\u2666');
-      _entities.Add ("quot", '\u0022');
-      _entities.Add ("amp", '\u0026');
-      _entities.Add ("lt", '\u003C');
-      _entities.Add ("gt", '\u003E');
-      _entities.Add ("OElig", '\u0152');
-      _entities.Add ("oelig", '\u0153');
-      _entities.Add ("Scaron", '\u0160');
-      _entities.Add ("scaron", '\u0161');
-      _entities.Add ("Yuml", '\u0178');
-      _entities.Add ("circ", '\u02C6');
-      _entities.Add ("tilde", '\u02DC');
-      _entities.Add ("ensp", '\u2002');
-      _entities.Add ("emsp", '\u2003');
-      _entities.Add ("thinsp", '\u2009');
-      _entities.Add ("zwnj", '\u200C');
-      _entities.Add ("zwj", '\u200D');
-      _entities.Add ("lrm", '\u200E');
-      _entities.Add ("rlm", '\u200F');
-      _entities.Add ("ndash", '\u2013');
-      _entities.Add ("mdash", '\u2014');
-      _entities.Add ("lsquo", '\u2018');
-      _entities.Add ("rsquo", '\u2019');
-      _entities.Add ("sbquo", '\u201A');
-      _entities.Add ("ldquo", '\u201C');
-      _entities.Add ("rdquo", '\u201D');
-      _entities.Add ("bdquo", '\u201E');
-      _entities.Add ("dagger", '\u2020');
-      _entities.Add ("Dagger", '\u2021');
-      _entities.Add ("permil", '\u2030');
-      _entities.Add ("lsaquo", '\u2039');
-      _entities.Add ("rsaquo", '\u203A');
-      _entities.Add ("euro", '\u20AC');
-    }
-
-    private static bool isAlphabet (char c)
-    {
-      return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
-    }
-
-    private static bool isNumeric (char c)
-    {
-      return c >= '0' && c <= '9';
-    }
-
-    private static bool isUnreserved (char c)
-    {
-      return c == '*'
-             || c == '-'
-             || c == '.'
-             || c == '_';
-    }
-
-    private static bool isUnreservedInRfc2396 (char c)
-    {
-      return c == '!'
-             || c == '\''
-             || c == '('
-             || c == ')'
-             || c == '*'
-             || c == '-'
-             || c == '.'
-             || c == '_'
-             || c == '~';
-    }
-
-    private static bool isUnreservedInRfc3986 (char c)
-    {
-      return c == '-'
-             || c == '.'
-             || c == '_'
-             || c == '~';
-    }
-
-    private static byte[] urlDecodeToBytes (byte[] bytes, int offset, int count)
-    {
-      using (var buff = new MemoryStream ()) {
-        var end = offset + count - 1;
-
-        for (var i = offset; i <= end; i++) {
-          var b = bytes[i];
-          var c = (char) b;
-
-          if (c == '%') {
-            if (i > end - 2)
-              break;
-
-            var num = getNumber (bytes, i + 1, 2);
-
-            if (num == -1)
-              break;
-
-            buff.WriteByte ((byte) num);
-
-            i += 2;
-
-            continue;
-          }
-
-          if (c == '+') {
-            buff.WriteByte ((byte) ' ');
-
-            continue;
-          }
-
-          buff.WriteByte (b);
+            return;
         }
 
-        buff.Close ();
-
-        return buff.ToArray ();
-      }
-    }
-
-    private static void urlEncode (byte b, Stream output)
-    {
-      if (b > 31 && b < 127) {
-        var c = (char) b;
-
-        if (c == ' ') {
-          output.WriteByte ((byte) '+');
-
-          return;
-        }
-
-        if (isNumeric (c)) {
-          output.WriteByte (b);
-
-          return;
-        }
-
-        if (isAlphabet (c)) {
-          output.WriteByte (b);
-
-          return;
-        }
-
-        if (isUnreserved (c)) {
-          output.WriteByte (b);
-
-          return;
-        }
-      }
-
-      var i = (int) b;
-      var bytes = new byte[] {
-                    (byte) '%',
-                    (byte) _hexChars[i >> 4],
-                    (byte) _hexChars[i & 0x0F]
-                  };
-
-      output.Write (bytes, 0, 3);
-    }
-
-    private static byte[] urlEncodeToBytes (byte[] bytes, int offset, int count)
-    {
-      using (var buff = new MemoryStream ()) {
-        var end = offset + count - 1;
-
-        for (var i = offset; i <= end; i++)
-          urlEncode (bytes[i], buff);
-
-        buff.Close ();
-
-        return buff.ToArray ();
-      }
+        buffer.Add((byte)c);
     }
 
     #endregion
 
     #region Internal Methods
 
-    internal static Uri CreateRequestUrl (
-      string requestUri,
-      string host,
-      bool websocketRequest,
-      bool secure
-    )
+    internal static Uri CreateRequestUrl(
+        string requestUri, string host, bool websocketRequest, bool secure)
     {
-      if (requestUri == null || requestUri.Length == 0)
-        return null;
+        if (requestUri == null || requestUri.Length == 0 || host == null || host.Length == 0)
+            return null;
 
-      if (host == null || host.Length == 0)
-        return null;
+        string schm = null;
+        string path = null;
+        if (requestUri.StartsWith("/"))
+        {
+            path = requestUri;
+        }
+        else if (requestUri.MaybeUri())
+        {
+            Uri uri;
+            var valid = Uri.TryCreate(requestUri, UriKind.Absolute, out uri) &&
+                        (((schm = uri.Scheme).StartsWith("http") && !websocketRequest) ||
+                         (schm.StartsWith("ws") && websocketRequest));
 
-      string schm = null;
-      string path = null;
+            if (!valid)
+                return null;
 
-      if (requestUri.IndexOf ('/') == 0) {
-        path = requestUri;
-      }
-      else if (requestUri.MaybeUri ()) {
-        Uri uri;
+            host = uri.Authority;
+            path = uri.PathAndQuery;
+        }
+        else if (requestUri == "*")
+        {
+        }
+        else
+        {
+            // As authority form
+            host = requestUri;
+        }
 
-        if (!Uri.TryCreate (requestUri, UriKind.Absolute, out uri))
-          return null;
+        if (schm == null)
+            schm = (websocketRequest ? "ws" : "http") + (secure ? "s" : string.Empty);
 
-        schm = uri.Scheme;
-        var valid = websocketRequest
-                    ? schm == "ws" || schm == "wss"
-                    : schm == "http" || schm == "https";
+        var colon = host.IndexOf(':');
+        if (colon == -1)
+            host = string.Format("{0}:{1}", host, schm == "http" || schm == "ws" ? 80 : 443);
 
-        if (!valid)
-          return null;
+        var url = string.Format("{0}://{1}{2}", schm, host, path);
 
-        host = uri.Authority;
-        path = uri.PathAndQuery;
-      }
-      else if (requestUri == "*") {
-      }
-      else {
-        // As the authority form.
+        Uri res;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out res))
+            return null;
 
-        host = requestUri;
-      }
-
-      if (schm == null) {
-        schm = websocketRequest
-               ? (secure ? "wss" : "ws")
-               : (secure ? "https" : "http");
-      }
-
-      if (host.IndexOf (':') == -1)
-        host = String.Format ("{0}:{1}", host, secure ? 443 : 80);
-
-      var url = String.Format ("{0}://{1}{2}", schm, host, path);
-      Uri ret;
-
-      return Uri.TryCreate (url, UriKind.Absolute, out ret) ? ret : null;
+        return res;
     }
 
-    internal static IPrincipal CreateUser (
-      string response,
-      AuthenticationSchemes scheme,
-      string realm,
-      string method,
-      Func<IIdentity, NetworkCredential> credentialsFinder
+    internal static IPrincipal CreateUser(
+        string response,
+        AuthenticationSchemes scheme,
+        string realm,
+        string method,
+        Func<IIdentity, NetworkCredential> credentialsFinder
     )
     {
-      if (response == null || response.Length == 0)
-        return null;
+        if (response == null || response.Length == 0)
+            return null;
 
-      if (scheme == AuthenticationSchemes.Digest) {
-        if (realm == null || realm.Length == 0)
-          return null;
+        if (credentialsFinder == null)
+            return null;
 
-        if (method == null || method.Length == 0)
-          return null;
-      }
-      else {
-        if (scheme != AuthenticationSchemes.Basic)
-          return null;
-      }
+        if (!(scheme == AuthenticationSchemes.Basic || scheme == AuthenticationSchemes.Digest))
+            return null;
 
-      if (credentialsFinder == null)
-        return null;
+        if (scheme == AuthenticationSchemes.Digest)
+        {
+            if (realm == null || realm.Length == 0)
+                return null;
 
-      var compType = StringComparison.OrdinalIgnoreCase;
+            if (method == null || method.Length == 0)
+                return null;
+        }
 
-      if (!response.StartsWith (scheme.ToString (), compType))
-        return null;
+        if (!response.StartsWith(scheme.ToString(), StringComparison.OrdinalIgnoreCase))
+            return null;
 
-      var res = AuthenticationResponse.Parse (response);
+        var res = AuthenticationResponse.Parse(response);
+        if (res == null)
+            return null;
 
-      if (res == null)
-        return null;
+        var id = res.ToIdentity();
+        if (id == null)
+            return null;
 
-      var id = res.ToIdentity ();
+        NetworkCredential cred = null;
+        try
+        {
+            cred = credentialsFinder(id);
+        }
+        catch
+        {
+        }
 
-      if (id == null)
-        return null;
+        if (cred == null)
+            return null;
 
-      NetworkCredential cred = null;
+        if (scheme == AuthenticationSchemes.Basic
+            && ((HttpBasicIdentity)id).Password != cred.Password
+           )
+            return null;
 
-      try {
-        cred = credentialsFinder (id);
-      }
-      catch {
-      }
+        if (scheme == AuthenticationSchemes.Digest
+            && !((HttpDigestIdentity)id).IsValid(cred.Password, realm, method, null)
+           )
+            return null;
 
-      if (cred == null)
-        return null;
-
-      if (scheme == AuthenticationSchemes.Basic) {
-        var basicId = (HttpBasicIdentity) id;
-
-        return basicId.Password == cred.Password
-               ? new GenericPrincipal (id, cred.Roles)
-               : null;
-      }
-
-      var digestId = (HttpDigestIdentity) id;
-
-      return digestId.IsValid (cred.Password, realm, method, null)
-             ? new GenericPrincipal (id, cred.Roles)
-             : null;
+        return new GenericPrincipal(id, cred.Roles);
     }
 
-    internal static Encoding GetEncoding (string contentType)
+    internal static Encoding GetEncoding(string contentType)
     {
-      var name = "charset=";
-      var compType = StringComparison.OrdinalIgnoreCase;
+        var parts = contentType.Split(';');
+        foreach (var p in parts)
+        {
+            var part = p.Trim();
+            if (part.StartsWith("charset", StringComparison.OrdinalIgnoreCase))
+                return Encoding.GetEncoding(part.GetValue('=', true));
+        }
 
-      foreach (var elm in contentType.SplitHeaderValue (';')) {
-        var part = elm.Trim ();
-
-        if (!part.StartsWith (name, compType))
-          continue;
-
-        var val = part.GetValue ('=', true);
-
-        if (val == null || val.Length == 0)
-          return null;
-
-        return Encoding.GetEncoding (val);
-      }
-
-      return null;
+        return null;
     }
 
-    internal static bool TryGetEncoding (
-      string contentType,
-      out Encoding result
-    )
+    internal static NameValueCollection InternalParseQueryString(string query, Encoding encoding)
     {
-      result = null;
+        int len;
+        if (query == null || (len = query.Length) == 0 || (len == 1 && query[0] == '?'))
+            return new NameValueCollection(1);
 
-      try {
-        result = GetEncoding (contentType);
-      }
-      catch {
-        return false;
-      }
+        if (query[0] == '?')
+            query = query.Substring(1);
 
-      return result != null;
+        var res = new QueryStringCollection();
+        var components = query.Split('&');
+        foreach (var component in components)
+        {
+            var i = component.IndexOf('=');
+            if (i > -1)
+            {
+                var name = UrlDecode(component.Substring(0, i), encoding);
+                var val = component.Length > i + 1
+                    ? UrlDecode(component.Substring(i + 1), encoding)
+                    : string.Empty;
+
+                res.Add(name, val);
+            }
+            else
+            {
+                res.Add(null, UrlDecode(component, encoding));
+            }
+        }
+
+        return res;
+    }
+
+    internal static string InternalUrlDecode(
+        byte[] bytes, int offset, int count, Encoding encoding)
+    {
+        var output = new StringBuilder();
+        using (var acc = new MemoryStream())
+        {
+            var end = count + offset;
+            for (var i = offset; i < end; i++)
+            {
+                if (bytes[i] == '%' && i + 2 < count && bytes[i + 1] != '%')
+                {
+                    int xchar;
+                    if (bytes[i + 1] == (byte)'u' && i + 5 < end)
+                    {
+                        if (acc.Length > 0)
+                        {
+                            output.Append(getChars(acc, encoding));
+                            acc.SetLength(0);
+                        }
+
+                        xchar = getChar(bytes, i + 2, 4);
+                        if (xchar != -1)
+                        {
+                            output.Append((char)xchar);
+                            i += 5;
+
+                            continue;
+                        }
+                    }
+                    else if ((xchar = getChar(bytes, i + 1, 2)) != -1)
+                    {
+                        acc.WriteByte((byte)xchar);
+                        i += 2;
+
+                        continue;
+                    }
+                }
+
+                if (acc.Length > 0)
+                {
+                    output.Append(getChars(acc, encoding));
+                    acc.SetLength(0);
+                }
+
+                if (bytes[i] == '+')
+                {
+                    output.Append(' ');
+                    continue;
+                }
+
+                output.Append((char)bytes[i]);
+            }
+
+            if (acc.Length > 0)
+                output.Append(getChars(acc, encoding));
+        }
+
+        return output.ToString();
+    }
+
+    internal static byte[] InternalUrlDecodeToBytes(byte[] bytes, int offset, int count)
+    {
+        using (var res = new MemoryStream())
+        {
+            var end = offset + count;
+            for (var i = offset; i < end; i++)
+            {
+                var c = (char)bytes[i];
+                if (c == '+')
+                {
+                    c = ' ';
+                }
+                else if (c == '%' && i < end - 2)
+                {
+                    var xchar = getChar(bytes, i + 1, 2);
+                    if (xchar != -1)
+                    {
+                        c = (char)xchar;
+                        i += 2;
+                    }
+                }
+
+                res.WriteByte((byte)c);
+            }
+
+            res.Close();
+            return res.ToArray();
+        }
+    }
+
+    internal static byte[] InternalUrlEncodeToBytes(byte[] bytes, int offset, int count)
+    {
+        using (var res = new MemoryStream())
+        {
+            var end = offset + count;
+            for (var i = offset; i < end; i++)
+                urlEncode((char)bytes[i], res, false);
+
+            res.Close();
+            return res.ToArray();
+        }
+    }
+
+    internal static byte[] InternalUrlEncodeUnicodeToBytes(string s)
+    {
+        using (var res = new MemoryStream())
+        {
+            foreach (var c in s)
+                urlEncode(c, res, true);
+
+            res.Close();
+            return res.ToArray();
+        }
     }
 
     #endregion
 
     #region Public Methods
 
-    public static string HtmlAttributeEncode (string s)
+    public static string HtmlAttributeEncode(string s)
     {
-      if (s == null)
-        throw new ArgumentNullException ("s");
+        if (s == null || s.Length == 0 || !s.Contains('&', '"', '<', '>'))
+            return s;
 
-      return s.Length > 0 ? htmlEncode (s, true) : s;
+        var output = new StringBuilder();
+        foreach (var c in s)
+            output.Append(
+                c == '&'
+                    ? "&amp;"
+                    : c == '"'
+                        ? "&quot;"
+                        : c == '<'
+                            ? "&lt;"
+                            : c == '>'
+                                ? "&gt;"
+                                : c.ToString());
+
+        return output.ToString();
     }
 
-    public static void HtmlAttributeEncode (string s, TextWriter output)
+    public static void HtmlAttributeEncode(string s, TextWriter output)
     {
-      if (s == null)
-        throw new ArgumentNullException ("s");
+        if (output == null)
+            throw new ArgumentNullException(nameof(output));
 
-      if (output == null)
-        throw new ArgumentNullException ("output");
-
-      if (s.Length == 0)
-        return;
-
-      var encodedS = htmlEncode (s, true);
-
-      output.Write (encodedS);
+        output.Write(HtmlAttributeEncode(s));
     }
 
-    public static string HtmlDecode (string s)
+    /// <summary>
+    ///     Decodes an HTML-encoded <see cref="string" /> and returns the decoded <see cref="string" />.
+    /// </summary>
+    /// <returns>
+    ///     A <see cref="string" /> that represents the decoded string.
+    /// </returns>
+    /// <param name="s">
+    ///     A <see cref="string" /> to decode.
+    /// </param>
+    public static string HtmlDecode(string s)
     {
-      if (s == null)
-        throw new ArgumentNullException ("s");
+        if (s == null || s.Length == 0 || !s.Contains('&'))
+            return s;
 
-      return s.Length > 0 ? htmlDecode (s) : s;
+        var entity = new StringBuilder();
+        var output = new StringBuilder();
+
+        // 0 -> nothing,
+        // 1 -> right after '&'
+        // 2 -> between '&' and ';' but no '#'
+        // 3 -> '#' found after '&' and getting numbers
+        var state = 0;
+
+        var number = 0;
+        var haveTrailingDigits = false;
+        foreach (var c in s)
+        {
+            if (state == 0)
+            {
+                if (c == '&')
+                {
+                    entity.Append(c);
+                    state = 1;
+                }
+                else
+                {
+                    output.Append(c);
+                }
+
+                continue;
+            }
+
+            if (c == '&')
+            {
+                state = 1;
+                if (haveTrailingDigits)
+                {
+                    entity.Append(number.ToString(CultureInfo.InvariantCulture));
+                    haveTrailingDigits = false;
+                }
+
+                output.Append(entity);
+                entity.Length = 0;
+                entity.Append('&');
+
+                continue;
+            }
+
+            if (state == 1)
+            {
+                if (c == ';')
+                {
+                    state = 0;
+                    output.Append(entity);
+                    output.Append(c);
+                    entity.Length = 0;
+                }
+                else
+                {
+                    number = 0;
+                    if (c != '#')
+                        state = 2;
+                    else
+                        state = 3;
+
+                    entity.Append(c);
+                }
+            }
+            else if (state == 2)
+            {
+                entity.Append(c);
+                if (c == ';')
+                {
+                    var key = entity.ToString();
+                    var entities = getEntities();
+                    if (key.Length > 1 && entities.ContainsKey(key.Substring(1, key.Length - 2)))
+                        key = entities[key.Substring(1, key.Length - 2)].ToString();
+
+                    output.Append(key);
+                    state = 0;
+                    entity.Length = 0;
+                }
+            }
+            else if (state == 3)
+            {
+                if (c == ';')
+                {
+                    if (number > 65535)
+                    {
+                        output.Append("&#");
+                        output.Append(number.ToString(CultureInfo.InvariantCulture));
+                        output.Append(";");
+                    }
+                    else
+                    {
+                        output.Append((char)number);
+                    }
+
+                    state = 0;
+                    entity.Length = 0;
+                    haveTrailingDigits = false;
+                }
+                else if (char.IsDigit(c))
+                {
+                    number = number * 10 + (c - '0');
+                    haveTrailingDigits = true;
+                }
+                else
+                {
+                    state = 2;
+                    if (haveTrailingDigits)
+                    {
+                        entity.Append(number.ToString(CultureInfo.InvariantCulture));
+                        haveTrailingDigits = false;
+                    }
+
+                    entity.Append(c);
+                }
+            }
+        }
+
+        if (entity.Length > 0)
+            output.Append(entity);
+        else if (haveTrailingDigits)
+            output.Append(number.ToString(CultureInfo.InvariantCulture));
+
+        return output.ToString();
     }
 
-    public static void HtmlDecode (string s, TextWriter output)
+    /// <summary>
+    ///     Decodes an HTML-encoded <see cref="string" /> and sends the decoded <see cref="string" />
+    ///     to the specified <see cref="TextWriter" />.
+    /// </summary>
+    /// <param name="s">
+    ///     A <see cref="string" /> to decode.
+    /// </param>
+    /// <param name="output">
+    ///     A <see cref="TextWriter" /> that receives the decoded string.
+    /// </param>
+    public static void HtmlDecode(string s, TextWriter output)
     {
-      if (s == null)
-        throw new ArgumentNullException ("s");
+        if (output == null)
+            throw new ArgumentNullException(nameof(output));
 
-      if (output == null)
-        throw new ArgumentNullException ("output");
-
-      if (s.Length == 0)
-        return;
-
-      var decodedS = htmlDecode (s);
-
-      output.Write (decodedS);
+        output.Write(HtmlDecode(s));
     }
 
-    public static string HtmlEncode (string s)
+    /// <summary>
+    ///     HTML-encodes a <see cref="string" /> and returns the encoded <see cref="string" />.
+    /// </summary>
+    /// <returns>
+    ///     A <see cref="string" /> that represents the encoded string.
+    /// </returns>
+    /// <param name="s">
+    ///     A <see cref="string" /> to encode.
+    /// </param>
+    public static string HtmlEncode(string s)
     {
-      if (s == null)
-        throw new ArgumentNullException ("s");
+        if (s == null || s.Length == 0)
+            return s;
 
-      return s.Length > 0 ? htmlEncode (s, false) : s;
+        var needEncode = false;
+        foreach (var c in s)
+            if (c == '&' || c == '"' || c == '<' || c == '>' || c > 159)
+            {
+                needEncode = true;
+                break;
+            }
+
+        if (!needEncode)
+            return s;
+
+        var output = new StringBuilder();
+        foreach (var c in s)
+            if (c == '&')
+            {
+                output.Append("&amp;");
+            }
+            else if (c == '"')
+            {
+                output.Append("&quot;");
+            }
+            else if (c == '<')
+            {
+                output.Append("&lt;");
+            }
+            else if (c == '>')
+            {
+                output.Append("&gt;");
+            }
+            else if (c > 159)
+            {
+                // MS starts encoding with &# from 160 and stops at 255.
+                // We don't do that. One reason is the 65308/65310 unicode
+                // characters that look like '<' and '>'.
+                output.Append("&#");
+                output.Append(((int)c).ToString(CultureInfo.InvariantCulture));
+                output.Append(";");
+            }
+            else
+            {
+                output.Append(c);
+            }
+
+        return output.ToString();
     }
 
-    public static void HtmlEncode (string s, TextWriter output)
+    /// <summary>
+    ///     HTML-encodes a <see cref="string" /> and sends the encoded <see cref="string" />
+    ///     to the specified <see cref="TextWriter" />.
+    /// </summary>
+    /// <param name="s">
+    ///     A <see cref="string" /> to encode.
+    /// </param>
+    /// <param name="output">
+    ///     A <see cref="TextWriter" /> that receives the encoded string.
+    /// </param>
+    public static void HtmlEncode(string s, TextWriter output)
     {
-      if (s == null)
-        throw new ArgumentNullException ("s");
+        if (output == null)
+            throw new ArgumentNullException(nameof(output));
 
-      if (output == null)
-        throw new ArgumentNullException ("output");
-
-      if (s.Length == 0)
-        return;
-
-      var encodedS = htmlEncode (s, false);
-
-      output.Write (encodedS);
+        output.Write(HtmlEncode(s));
     }
 
-    public static string UrlDecode (string s)
+    public static NameValueCollection ParseQueryString(string query)
     {
-      return UrlDecode (s, Encoding.UTF8);
+        return ParseQueryString(query, Encoding.UTF8);
     }
 
-    public static string UrlDecode (byte[] bytes, Encoding encoding)
+    public static NameValueCollection ParseQueryString(string query, Encoding encoding)
     {
-      if (bytes == null)
-        throw new ArgumentNullException ("bytes");
+        if (query == null)
+            throw new ArgumentNullException(nameof(query));
 
-      var len = bytes.Length;
-
-      if (len == 0)
-        return String.Empty;
-
-      var decodedBytes = urlDecodeToBytes (bytes, 0, len);
-
-      return (encoding ?? Encoding.UTF8).GetString (decodedBytes);
+        return InternalParseQueryString(query, encoding ?? Encoding.UTF8);
     }
 
-    public static string UrlDecode (string s, Encoding encoding)
+    public static string UrlDecode(string s)
     {
-      if (s == null)
-        throw new ArgumentNullException ("s");
-
-      if (s.Length == 0)
-        return s;
-
-      var bytes = Encoding.ASCII.GetBytes (s);
-      var decodedBytes = urlDecodeToBytes (bytes, 0, bytes.Length);
-
-      return (encoding ?? Encoding.UTF8).GetString (decodedBytes);
+        return UrlDecode(s, Encoding.UTF8);
     }
 
-    public static string UrlDecode (
-      byte[] bytes,
-      int offset,
-      int count,
-      Encoding encoding
-    )
+    public static string UrlDecode(string s, Encoding encoding)
     {
-      if (bytes == null)
-        throw new ArgumentNullException ("bytes");
+        if (s == null || s.Length == 0 || !s.Contains('%', '+'))
+            return s;
 
-      var len = bytes.Length;
+        if (encoding == null)
+            encoding = Encoding.UTF8;
 
-      if (len == 0) {
-        if (offset != 0)
-          throw new ArgumentOutOfRangeException ("offset");
+        var buff = new List<byte>();
+        var len = s.Length;
+        for (var i = 0; i < len; i++)
+        {
+            var c = s[i];
+            if (c == '%' && i + 2 < len && s[i + 1] != '%')
+            {
+                int xchar;
+                if (s[i + 1] == 'u' && i + 5 < len)
+                {
+                    // Unicode hex sequence.
+                    xchar = getChar(s, i + 2, 4);
+                    if (xchar != -1)
+                    {
+                        writeCharBytes((char)xchar, buff, encoding);
+                        i += 5;
+                    }
+                    else
+                    {
+                        writeCharBytes('%', buff, encoding);
+                    }
+                }
+                else if ((xchar = getChar(s, i + 1, 2)) != -1)
+                {
+                    writeCharBytes((char)xchar, buff, encoding);
+                    i += 2;
+                }
+                else
+                {
+                    writeCharBytes('%', buff, encoding);
+                }
 
-        if (count != 0)
-          throw new ArgumentOutOfRangeException ("count");
+                continue;
+            }
 
-        return String.Empty;
-      }
+            if (c == '+')
+            {
+                writeCharBytes(' ', buff, encoding);
+                continue;
+            }
 
-      if (offset < 0 || offset >= len)
-        throw new ArgumentOutOfRangeException ("offset");
+            writeCharBytes(c, buff, encoding);
+        }
 
-      if (count < 0 || count > len - offset)
-        throw new ArgumentOutOfRangeException ("count");
-
-      if (count == 0)
-        return String.Empty;
-
-      var decodedBytes = urlDecodeToBytes (bytes, offset, count);
-
-      return (encoding ?? Encoding.UTF8).GetString (decodedBytes);
+        return encoding.GetString(buff.ToArray());
     }
 
-    public static byte[] UrlDecodeToBytes (byte[] bytes)
+    public static string UrlDecode(byte[] bytes, Encoding encoding)
     {
-      if (bytes == null)
-        throw new ArgumentNullException ("bytes");
-
-      var len = bytes.Length;
-
-      return len > 0 ? urlDecodeToBytes (bytes, 0, len) : bytes;
+        int len;
+        return bytes == null
+            ? null
+            : (len = bytes.Length) == 0
+                ? string.Empty
+                : InternalUrlDecode(bytes, 0, len, encoding ?? Encoding.UTF8);
     }
 
-    public static byte[] UrlDecodeToBytes (string s)
+    public static string UrlDecode(byte[] bytes, int offset, int count, Encoding encoding)
     {
-      if (s == null)
-        throw new ArgumentNullException ("s");
+        if (bytes == null)
+            return null;
 
-      if (s.Length == 0)
-        return new byte[0];
+        var len = bytes.Length;
+        if (len == 0 || count == 0)
+            return string.Empty;
 
-      var bytes = Encoding.ASCII.GetBytes (s);
+        if (offset < 0 || offset >= len)
+            throw new ArgumentOutOfRangeException(nameof(offset));
 
-      return urlDecodeToBytes (bytes, 0, bytes.Length);
+        if (count < 0 || count > len - offset)
+            throw new ArgumentOutOfRangeException(nameof(count));
+
+        return InternalUrlDecode(bytes, offset, count, encoding ?? Encoding.UTF8);
     }
 
-    public static byte[] UrlDecodeToBytes (byte[] bytes, int offset, int count)
+    public static byte[]? UrlDecodeToBytes(byte[]? bytes)
     {
-      if (bytes == null)
-        throw new ArgumentNullException ("bytes");
-
-      var len = bytes.Length;
-
-      if (len == 0) {
-        if (offset != 0)
-          throw new ArgumentOutOfRangeException ("offset");
-
-        if (count != 0)
-          throw new ArgumentOutOfRangeException ("count");
-
-        return bytes;
-      }
-
-      if (offset < 0 || offset >= len)
-        throw new ArgumentOutOfRangeException ("offset");
-
-      if (count < 0 || count > len - offset)
-        throw new ArgumentOutOfRangeException ("count");
-
-      return count > 0 ? urlDecodeToBytes (bytes, offset, count) : new byte[0];
+        int len;
+        return bytes != null && (len = bytes.Length) > 0
+            ? InternalUrlDecodeToBytes(bytes, 0, len)
+            : bytes;
     }
 
-    public static string UrlEncode (byte[] bytes)
+    public static byte[] UrlDecodeToBytes(string s)
     {
-      if (bytes == null)
-        throw new ArgumentNullException ("bytes");
-
-      var len = bytes.Length;
-
-      if (len == 0)
-        return String.Empty;
-
-      var encodedBytes = urlEncodeToBytes (bytes, 0, len);
-
-      return Encoding.ASCII.GetString (encodedBytes);
+        return UrlDecodeToBytes(s, Encoding.UTF8);
     }
 
-    public static string UrlEncode (string s)
+    public static byte[] UrlDecodeToBytes(string s, Encoding encoding)
     {
-      return UrlEncode (s, Encoding.UTF8);
+        if (s == null)
+            return null;
+
+        if (s.Length == 0)
+            return new byte[0];
+
+        var bytes = (encoding ?? Encoding.UTF8).GetBytes(s);
+        return InternalUrlDecodeToBytes(bytes, 0, bytes.Length);
     }
 
-    public static string UrlEncode (string s, Encoding encoding)
+    public static byte[] UrlDecodeToBytes(byte[] bytes, int offset, int count)
     {
-      if (s == null)
-        throw new ArgumentNullException ("s");
+        int len;
+        if (bytes == null || (len = bytes.Length) == 0)
+            return bytes;
 
-      var len = s.Length;
+        if (count == 0)
+            return new byte[0];
 
-      if (len == 0)
-        return s;
+        if (offset < 0 || offset >= len)
+            throw new ArgumentOutOfRangeException(nameof(offset));
 
-      if (encoding == null)
-        encoding = Encoding.UTF8;
+        if (count < 0 || count > len - offset)
+            throw new ArgumentOutOfRangeException(nameof(count));
 
-      var maxCnt = encoding.GetMaxByteCount (len);
-      var bytes = new byte[maxCnt];
-      var cnt = encoding.GetBytes (s, 0, len, bytes, 0);
-      var encodedBytes = urlEncodeToBytes (bytes, 0, cnt);
-
-      return Encoding.ASCII.GetString (encodedBytes);
+        return InternalUrlDecodeToBytes(bytes, offset, count);
     }
 
-    public static string UrlEncode (byte[] bytes, int offset, int count)
+    public static string UrlEncode(byte[] bytes)
     {
-      if (bytes == null)
-        throw new ArgumentNullException ("bytes");
-
-      var len = bytes.Length;
-
-      if (len == 0) {
-        if (offset != 0)
-          throw new ArgumentOutOfRangeException ("offset");
-
-        if (count != 0)
-          throw new ArgumentOutOfRangeException ("count");
-
-        return String.Empty;
-      }
-
-      if (offset < 0 || offset >= len)
-        throw new ArgumentOutOfRangeException ("offset");
-
-      if (count < 0 || count > len - offset)
-        throw new ArgumentOutOfRangeException ("count");
-
-      if (count == 0)
-        return String.Empty;
-
-      var encodedBytes = urlEncodeToBytes (bytes, offset, count);
-
-      return Encoding.ASCII.GetString (encodedBytes);
+        int len;
+        return bytes == null
+            ? null
+            : (len = bytes.Length) == 0
+                ? string.Empty
+                : Encoding.ASCII.GetString(InternalUrlEncodeToBytes(bytes, 0, len));
     }
 
-    public static byte[] UrlEncodeToBytes (byte[] bytes)
+    public static string UrlEncode(string s)
     {
-      if (bytes == null)
-        throw new ArgumentNullException ("bytes");
-
-      var len = bytes.Length;
-
-      return len > 0 ? urlEncodeToBytes (bytes, 0, len) : bytes;
+        return UrlEncode(s, Encoding.UTF8);
     }
 
-    public static byte[] UrlEncodeToBytes (string s)
+    public static string UrlEncode(string s, Encoding encoding)
     {
-      return UrlEncodeToBytes (s, Encoding.UTF8);
+        int len;
+        if (s == null || (len = s.Length) == 0)
+            return s;
+
+        var needEncode = false;
+        foreach (var c in s)
+            if (c < '0' || (c < 'A' && c > '9') || (c > 'Z' && c < 'a') || c > 'z')
+            {
+                if (notEncoded(c))
+                    continue;
+
+                needEncode = true;
+                break;
+            }
+
+        if (!needEncode)
+            return s;
+
+        if (encoding == null)
+            encoding = Encoding.UTF8;
+
+        // Avoided GetByteCount call.
+        var bytes = new byte[encoding.GetMaxByteCount(len)];
+        var realLen = encoding.GetBytes(s, 0, len, bytes, 0);
+
+        return Encoding.ASCII.GetString(InternalUrlEncodeToBytes(bytes, 0, realLen));
     }
 
-    public static byte[] UrlEncodeToBytes (string s, Encoding encoding)
+    public static string UrlEncode(byte[] bytes, int offset, int count)
     {
-      if (s == null)
-        throw new ArgumentNullException ("s");
-
-      if (s.Length == 0)
-        return new byte[0];
-
-      var bytes = (encoding ?? Encoding.UTF8).GetBytes (s);
-
-      return urlEncodeToBytes (bytes, 0, bytes.Length);
+        var encoded = UrlEncodeToBytes(bytes, offset, count);
+        return encoded == null
+            ? null
+            : encoded.Length == 0
+                ? string.Empty
+                : Encoding.ASCII.GetString(encoded);
     }
 
-    public static byte[] UrlEncodeToBytes (byte[] bytes, int offset, int count)
+    public static byte[] UrlEncodeToBytes(byte[] bytes)
     {
-      if (bytes == null)
-        throw new ArgumentNullException ("bytes");
+        int len;
+        return bytes != null && (len = bytes.Length) > 0
+            ? InternalUrlEncodeToBytes(bytes, 0, len)
+            : bytes;
+    }
 
-      var len = bytes.Length;
+    public static byte[] UrlEncodeToBytes(string s)
+    {
+        return UrlEncodeToBytes(s, Encoding.UTF8);
+    }
 
-      if (len == 0) {
-        if (offset != 0)
-          throw new ArgumentOutOfRangeException ("offset");
+    public static byte[] UrlEncodeToBytes(string s, Encoding encoding)
+    {
+        if (s == null)
+            return null;
 
-        if (count != 0)
-          throw new ArgumentOutOfRangeException ("count");
+        if (s.Length == 0)
+            return new byte[0];
 
-        return bytes;
-      }
+        var bytes = (encoding ?? Encoding.UTF8).GetBytes(s);
+        return InternalUrlEncodeToBytes(bytes, 0, bytes.Length);
+    }
 
-      if (offset < 0 || offset >= len)
-        throw new ArgumentOutOfRangeException ("offset");
+    public static byte[]? UrlEncodeToBytes(byte[]? bytes, int offset, int count)
+    {
+        int len;
+        if (bytes == null || (len = bytes.Length) == 0)
+            return bytes;
 
-      if (count < 0 || count > len - offset)
-        throw new ArgumentOutOfRangeException ("count");
+        if (count == 0)
+            return Array.Empty<byte>();
 
-      return count > 0 ? urlEncodeToBytes (bytes, offset, count) : new byte[0];
+        if (offset < 0 || offset >= len)
+            throw new ArgumentOutOfRangeException(nameof(offset));
+
+        if (count < 0 || count > len - offset)
+            throw new ArgumentOutOfRangeException(nameof(count));
+
+        return InternalUrlEncodeToBytes(bytes, offset, count);
+    }
+
+    public static string UrlEncodeUnicode(string s)
+    {
+        return s != null && s.Length > 0
+            ? Encoding.ASCII.GetString(InternalUrlEncodeUnicodeToBytes(s))
+            : s;
+    }
+
+    public static byte[] UrlEncodeUnicodeToBytes(string s)
+    {
+        return s == null
+            ? null
+            : s.Length == 0
+                ? new byte[0]
+                : InternalUrlEncodeUnicodeToBytes(s);
+    }
+
+    public static string UrlPathEncode(string s)
+    {
+        if (s == null || s.Length == 0)
+            return s;
+
+        using (var res = new MemoryStream())
+        {
+            foreach (var c in s)
+                urlPathEncode(c, res);
+
+            res.Close();
+            return Encoding.ASCII.GetString(res.ToArray());
+        }
     }
 
     #endregion
-  }
 }

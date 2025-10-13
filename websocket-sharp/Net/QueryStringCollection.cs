@@ -1,14 +1,15 @@
 #region License
+
 /*
  * QueryStringCollection.cs
  *
- * This code is derived from HttpUtility.cs (System.Net) of Mono
+ * This code is derived from System.Net.HttpUtility.cs of Mono
  * (http://www.mono-project.com).
  *
  * The MIT License
  *
  * Copyright (c) 2005-2009 Novell, Inc. (http://www.novell.com)
- * Copyright (c) 2018-2023 sta.blockhead
+ * Copyright (c) 2014 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,9 +29,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 #region Authors
+
 /*
  * Authors:
  * - Patrik Torstensson <Patrik.Torstensson@labs2.com>
@@ -38,107 +41,31 @@
  * - Tim Coleman <tim@timcoleman.com>
  * - Gonzalo Paniagua Javier <gonzalo@ximian.com>
  */
+
 #endregion
 
-using System;
 using System.Collections.Specialized;
 using System.Text;
 
-namespace WebSocketSharp.Net
+#pragma warning disable CS8625
+namespace WebSocketSharp.Net;
+
+internal sealed class QueryStringCollection : NameValueCollection
 {
-  internal sealed class QueryStringCollection : NameValueCollection
-  {
-    #region Public Constructors
-
-    public QueryStringCollection ()
+    public override string ToString()
     {
+        var cnt = Count;
+        if (cnt == 0)
+            return string.Empty;
+
+        var output = new StringBuilder();
+        var keys = AllKeys;
+        foreach (var key in keys)
+            output.AppendFormat("{0}={1}&", key, this[key]);
+
+        if (output.Length > 0)
+            output.Length--;
+
+        return output.ToString();
     }
-
-    public QueryStringCollection (int capacity)
-      : base (capacity)
-    {
-    }
-
-    #endregion
-
-    #region Public Methods
-
-    public static QueryStringCollection Parse (string query)
-    {
-      return Parse (query, Encoding.UTF8);
-    }
-
-    public static QueryStringCollection Parse (string query, Encoding encoding)
-    {
-      if (query == null)
-        return new QueryStringCollection (1);
-
-      if (query.Length == 0)
-        return new QueryStringCollection (1);
-
-      if (query == "?")
-        return new QueryStringCollection (1);
-
-      if (query[0] == '?')
-        query = query.Substring (1);
-
-      if (encoding == null)
-        encoding = Encoding.UTF8;
-
-      var ret = new QueryStringCollection ();
-
-      foreach (var component in query.Split ('&')) {
-        var len = component.Length;
-
-        if (len == 0)
-          continue;
-
-        if (component == "=")
-          continue;
-
-        string name = null;
-        string val = null;
-
-        var idx = component.IndexOf ('=');
-
-        if (idx < 0) {
-          val = component.UrlDecode (encoding);
-        }
-        else if (idx == 0) {
-          val = component.Substring (1).UrlDecode (encoding);
-        }
-        else {
-          name = component.Substring (0, idx).UrlDecode (encoding);
-
-          var start = idx + 1;
-          val = start < len
-                ? component.Substring (start).UrlDecode (encoding)
-                : String.Empty;
-        }
-
-        ret.Add (name, val);
-      }
-
-      return ret;
-    }
-
-    public override string ToString ()
-    {
-      if (Count == 0)
-        return String.Empty;
-
-      var buff = new StringBuilder ();
-
-      var fmt = "{0}={1}&";
-
-      foreach (var key in AllKeys)
-        buff.AppendFormat (fmt, key, this[key]);
-
-      buff.Length--;
-
-      return buff.ToString ();
-    }
-
-    #endregion
-  }
 }

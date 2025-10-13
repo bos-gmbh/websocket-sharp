@@ -1,14 +1,15 @@
 #region License
+
 /*
  * AuthenticationResponse.cs
  *
- * The ParseBasicCredentials method is derived from HttpListenerContext.cs
- * (System.Net) of Mono (http://www.mono-project.com).
+ * ParseBasicCredentials is derived from System.Net.HttpListenerContext.cs of Mono
+ * (http://www.mono-project.com).
  *
  * The MIT License
  *
  * Copyright (c) 2005 Novell, Inc. (http://www.novell.com)
- * Copyright (c) 2013-2024 sta.blockhead
+ * Copyright (c) 2013-2014 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,6 +29,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 using System;
@@ -36,429 +38,266 @@ using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
 
-namespace WebSocketSharp.Net
+#pragma warning disable CS8625
+namespace WebSocketSharp.Net;
+
+internal class AuthenticationResponse : AuthenticationBase
 {
-  internal class AuthenticationResponse
-  {
     #region Private Fields
 
-    private uint                  _nonceCount;
-    private NameValueCollection   _parameters;
-    private AuthenticationSchemes _scheme;
+    private uint _nonceCount;
 
     #endregion
 
     #region Private Constructors
 
-    private AuthenticationResponse (
-      AuthenticationSchemes scheme,
-      NameValueCollection parameters
-    )
+    private AuthenticationResponse(AuthenticationSchemes scheme, NameValueCollection parameters)
+        : base(scheme, parameters)
     {
-      _scheme = scheme;
-      _parameters = parameters;
-    }
-
-    #endregion
-
-    #region Internal Constructors
-
-    internal AuthenticationResponse (NetworkCredential credentials)
-      : this (
-          AuthenticationSchemes.Basic,
-          new NameValueCollection (),
-          credentials,
-          0
-        )
-    {
-    }
-
-    internal AuthenticationResponse (
-      AuthenticationChallenge challenge,
-      NetworkCredential credentials,
-      uint nonceCount
-    )
-      : this (challenge.Scheme, challenge.Parameters, credentials, nonceCount)
-    {
-    }
-
-    internal AuthenticationResponse (
-      AuthenticationSchemes scheme,
-      NameValueCollection parameters,
-      NetworkCredential credentials,
-      uint nonceCount
-    )
-      : this (scheme, parameters)
-    {
-      _parameters["username"] = credentials.Username;
-      _parameters["password"] = credentials.Password;
-      _parameters["uri"] = credentials.Domain;
-      _nonceCount = nonceCount;
-
-      if (scheme == AuthenticationSchemes.Digest)
-        initAsDigest ();
     }
 
     #endregion
 
     #region Internal Properties
 
-    internal uint NonceCount {
-      get {
-        return _nonceCount < UInt32.MaxValue ? _nonceCount : 0;
-      }
+    internal uint NonceCount =>
+        _nonceCount < uint.MaxValue
+            ? _nonceCount
+            : 0;
+
+    #endregion
+
+    #region Public Methods
+
+    public IIdentity ToIdentity()
+    {
+        var schm = Scheme;
+        return schm == AuthenticationSchemes.Basic
+            ? new HttpBasicIdentity(Parameters["username"], Parameters["password"])
+            : schm == AuthenticationSchemes.Digest
+                ? new HttpDigestIdentity(Parameters)
+                : null;
     }
 
-    internal NameValueCollection Parameters {
-      get {
-        return _parameters;
-      }
+    #endregion
+
+    #region Internal Constructors
+
+    internal AuthenticationResponse(NetworkCredential credentials)
+        : this(AuthenticationSchemes.Basic, new NameValueCollection(), credentials, 0)
+    {
+    }
+
+    internal AuthenticationResponse(
+        AuthenticationChallenge challenge, NetworkCredential credentials, uint nonceCount)
+        : this(challenge.Scheme, challenge.Parameters, credentials, nonceCount)
+    {
+    }
+
+    internal AuthenticationResponse(
+        AuthenticationSchemes scheme,
+        NameValueCollection parameters,
+        NetworkCredential credentials,
+        uint nonceCount)
+        : base(scheme, parameters)
+    {
+        Parameters["username"] = credentials.Username;
+        Parameters["password"] = credentials.Password;
+        Parameters["uri"] = credentials.Domain;
+        _nonceCount = nonceCount;
+        if (scheme == AuthenticationSchemes.Digest)
+            initAsDigest();
     }
 
     #endregion
 
     #region Public Properties
 
-    public string Algorithm {
-      get {
-        return _parameters["algorithm"];
-      }
-    }
+    public string Cnonce => Parameters["cnonce"];
 
-    public string Cnonce {
-      get {
-        return _parameters["cnonce"];
-      }
-    }
+    public string Nc => Parameters["nc"];
 
-    public string Nc {
-      get {
-        return _parameters["nc"];
-      }
-    }
+    public string Password => Parameters["password"];
 
-    public string Nonce {
-      get {
-        return _parameters["nonce"];
-      }
-    }
+    public string Response => Parameters["response"];
 
-    public string Opaque {
-      get {
-        return _parameters["opaque"];
-      }
-    }
+    public string Uri => Parameters["uri"];
 
-    public string Password {
-      get {
-        return _parameters["password"];
-      }
-    }
-
-    public string Qop {
-      get {
-        return _parameters["qop"];
-      }
-    }
-
-    public string Realm {
-      get {
-        return _parameters["realm"];
-      }
-    }
-
-    public string Response {
-      get {
-        return _parameters["response"];
-      }
-    }
-
-    public AuthenticationSchemes Scheme {
-      get {
-        return _scheme;
-      }
-    }
-
-    public string Uri {
-      get {
-        return _parameters["uri"];
-      }
-    }
-
-    public string UserName {
-      get {
-        return _parameters["username"];
-      }
-    }
+    public string UserName => Parameters["username"];
 
     #endregion
 
     #region Private Methods
 
-    private static string createA1 (
-      string username,
-      string password,
-      string realm
-    )
+    private static string createA1(string username, string password, string realm)
     {
-      return String.Format ("{0}:{1}:{2}", username, realm, password);
+        return string.Format("{0}:{1}:{2}", username, realm, password);
     }
 
-    private static string createA1 (
-      string username,
-      string password,
-      string realm,
-      string nonce,
-      string cnonce
-    )
+    private static string createA1(
+        string username, string password, string realm, string nonce, string cnonce)
     {
-      var a1 = createA1 (username, password, realm);
-
-      return String.Format ("{0}:{1}:{2}", hash (a1), nonce, cnonce);
+        return string.Format(
+            "{0}:{1}:{2}", hash(createA1(username, password, realm)), nonce, cnonce);
     }
 
-    private static string createA2 (string method, string uri)
+    private static string createA2(string method, string uri)
     {
-      return String.Format ("{0}:{1}", method, uri);
+        return string.Format("{0}:{1}", method, uri);
     }
 
-    private static string createA2 (string method, string uri, string entity)
+    private static string createA2(string method, string uri, string entity)
     {
-      return String.Format ("{0}:{1}:{2}", method, uri, hash (entity));
+        return string.Format("{0}:{1}:{2}", method, uri, hash(entity));
     }
 
-    private static string hash (string value)
+    private static string hash(string value)
     {
-      var buff = new StringBuilder (64);
+        var src = Encoding.UTF8.GetBytes(value);
+        var md5 = MD5.Create();
+        var hashed = md5.ComputeHash(src);
 
-      var md5 = MD5.Create ();
-      var bytes = Encoding.UTF8.GetBytes (value);
-      var res = md5.ComputeHash (bytes);
+        var res = new StringBuilder(64);
+        foreach (var b in hashed)
+            res.Append(b.ToString("x2"));
 
-      foreach (var b in res)
-        buff.Append (b.ToString ("x2"));
-
-      return buff.ToString ();
+        return res.ToString();
     }
 
-    private void initAsDigest ()
+    private void initAsDigest()
     {
-      var qops = _parameters["qop"];
-
-      if (qops != null) {
-        var hasAuth = qops.Split (',').Contains (
-                        qop => qop.Trim ().ToLower () == "auth"
-                      );
-
-        if (hasAuth) {
-          _parameters["qop"] = "auth";
-          _parameters["cnonce"] = AuthenticationChallenge.CreateNonceValue ();
-          _parameters["nc"] = String.Format ("{0:x8}", ++_nonceCount);
+        var qops = Parameters["qop"];
+        if (qops != null)
+        {
+            if (qops.Split(',').Contains(qop => qop.Trim().ToLower() == "auth"))
+            {
+                Parameters["qop"] = "auth";
+                Parameters["cnonce"] = CreateNonceValue();
+                Parameters["nc"] = string.Format("{0:x8}", ++_nonceCount);
+            }
+            else
+            {
+                Parameters["qop"] = null;
+            }
         }
-        else {
-          _parameters["qop"] = null;
-        }
-      }
 
-      _parameters["method"] = "GET";
-      _parameters["response"] = CreateRequestDigest (_parameters);
+        Parameters["method"] = "GET";
+        Parameters["response"] = CreateRequestDigest(Parameters);
     }
 
     #endregion
 
     #region Internal Methods
 
-    internal static string CreateRequestDigest (NameValueCollection parameters)
+    internal static string CreateRequestDigest(NameValueCollection parameters)
     {
-      var uname = parameters["username"];
-      var passwd = parameters["password"];
-      var realm = parameters["realm"];
-      var nonce = parameters["nonce"];
-      var uri = parameters["uri"];
-      var algo = parameters["algorithm"];
-      var qop = parameters["qop"];
-      var cnonce = parameters["cnonce"];
-      var nc = parameters["nc"];
-      var method = parameters["method"];
+        var user = parameters["username"];
+        var pass = parameters["password"];
+        var realm = parameters["realm"];
+        var nonce = parameters["nonce"];
+        var uri = parameters["uri"];
+        var algo = parameters["algorithm"];
+        var qop = parameters["qop"];
+        var cnonce = parameters["cnonce"];
+        var nc = parameters["nc"];
+        var method = parameters["method"];
 
-      var a1 = algo != null && algo.ToLower () == "md5-sess"
-               ? createA1 (uname, passwd, realm, nonce, cnonce)
-               : createA1 (uname, passwd, realm);
+        var a1 = algo != null && algo.ToLower() == "md5-sess"
+            ? createA1(user, pass, realm, nonce, cnonce)
+            : createA1(user, pass, realm);
 
-      var a2 = qop != null && qop.ToLower () == "auth-int"
-               ? createA2 (method, uri, parameters["entity"])
-               : createA2 (method, uri);
+        var a2 = qop != null && qop.ToLower() == "auth-int"
+            ? createA2(method, uri, parameters["entity"])
+            : createA2(method, uri);
 
-      var secret = hash (a1);
-      var data = qop != null
-                 ? String.Format (
-                     "{0}:{1}:{2}:{3}:{4}",
-                     nonce,
-                     nc,
-                     cnonce,
-                     qop,
-                     hash (a2)
-                   )
-                 : String.Format ("{0}:{1}", nonce, hash (a2));
+        var secret = hash(a1);
+        var data = qop != null
+            ? string.Format("{0}:{1}:{2}:{3}:{4}", nonce, nc, cnonce, qop, hash(a2))
+            : string.Format("{0}:{1}", nonce, hash(a2));
 
-      var keyed = String.Format ("{0}:{1}", secret, data);
-
-      return hash (keyed);
+        return hash(string.Format("{0}:{1}", secret, data));
     }
 
-    internal static AuthenticationResponse Parse (string value)
+    internal static AuthenticationResponse Parse(string value)
     {
-      try {
-        var cred = value.Split (new[] { ' ' }, 2);
+        try
+        {
+            var cred = value.Split(new[] { ' ' }, 2);
+            if (cred.Length != 2)
+                return null;
 
-        if (cred.Length != 2)
-          return null;
-
-        var schm = cred[0].ToLower ();
-
-        if (schm == "basic") {
-          var parameters = ParseBasicCredentials (cred[1]);
-
-          return new AuthenticationResponse (
-                   AuthenticationSchemes.Basic,
-                   parameters
-                 );
+            var schm = cred[0].ToLower();
+            return schm == "basic"
+                ? new AuthenticationResponse(
+                    AuthenticationSchemes.Basic, ParseBasicCredentials(cred[1]))
+                : schm == "digest"
+                    ? new AuthenticationResponse(
+                        AuthenticationSchemes.Digest, ParseParameters(cred[1]))
+                    : null;
         }
-
-        if (schm == "digest") {
-          var parameters = AuthenticationChallenge.ParseParameters (cred[1]);
-
-          return new AuthenticationResponse (
-                   AuthenticationSchemes.Digest,
-                   parameters
-                 );
+        catch
+        {
         }
 
         return null;
-      }
-      catch {
-        return null;
-      }
     }
 
-    internal static NameValueCollection ParseBasicCredentials (string value)
+    internal static NameValueCollection ParseBasicCredentials(string value)
     {
-      var ret = new NameValueCollection ();
+        // Decode the basic-credentials (a Base64 encoded string).
+        var userPass = Encoding.Default.GetString(Convert.FromBase64String(value));
 
-      // Decode the basic-credentials (a Base64 encoded string).
+        // The format is [<domain>\]<username>:<password>.
+        var i = userPass.IndexOf(':');
+        var user = userPass.Substring(0, i);
+        var pass = i < userPass.Length - 1 ? userPass.Substring(i + 1) : string.Empty;
 
-      var bytes = Convert.FromBase64String (value);
-      var userPass = Encoding.UTF8.GetString (bytes);
+        // Check if 'domain' exists.
+        i = user.IndexOf('\\');
+        if (i > -1)
+            user = user.Substring(i + 1);
 
-      // The format is [<domain>\]<username>:<password>.
+        var res = new NameValueCollection();
+        res["username"] = user;
+        res["password"] = pass;
 
-      var idx = userPass.IndexOf (':');
-      var uname = userPass.Substring (0, idx);
-      var passwd = idx < userPass.Length - 1
-                   ? userPass.Substring (idx + 1)
-                   : String.Empty;
-
-      // Check if <domain> exists.
-
-      idx = uname.IndexOf ('\\');
-
-      if (idx > -1)
-        uname = uname.Substring (idx + 1);
-
-      ret["username"] = uname;
-      ret["password"] = passwd;
-
-      return ret;
+        return res;
     }
 
-    internal string ToBasicString ()
+    internal override string ToBasicString()
     {
-      var uname = _parameters["username"];
-      var passwd = _parameters["password"];
-      var userPass = String.Format ("{0}:{1}", uname, passwd);
+        var userPass = string.Format("{0}:{1}", Parameters["username"], Parameters["password"]);
+        var cred = Convert.ToBase64String(Encoding.UTF8.GetBytes(userPass));
 
-      var bytes = Encoding.UTF8.GetBytes (userPass);
-      var cred = Convert.ToBase64String (bytes);
-
-      return "Basic " + cred;
+        return $"Basic {cred}";
     }
 
-    internal string ToDigestString ()
+    internal override string ToDigestString()
     {
-      var buff = new StringBuilder (256);
+        var output = new StringBuilder(256);
+        output.AppendFormat(
+            "Digest username=\"{0}\", realm=\"{1}\", nonce=\"{2}\", uri=\"{3}\", response=\"{4}\"",
+            Parameters["username"],
+            Parameters["realm"],
+            Parameters["nonce"],
+            Parameters["uri"],
+            Parameters["response"]);
 
-      var uname = _parameters["username"];
-      var realm = _parameters["realm"];
-      var nonce = _parameters["nonce"];
-      var uri = _parameters["uri"];
-      var res = _parameters["response"];
+        var opaque = Parameters["opaque"];
+        if (opaque != null)
+            output.AppendFormat(", opaque=\"{0}\"", opaque);
 
-      buff.AppendFormat (
-        "Digest username=\"{0}\", realm=\"{1}\", nonce=\"{2}\", uri=\"{3}\", response=\"{4}\"",
-        uname,
-        realm,
-        nonce,
-        uri,
-        res
-      );
+        var algo = Parameters["algorithm"];
+        if (algo != null)
+            output.AppendFormat(", algorithm={0}", algo);
 
-      var opaque = _parameters["opaque"];
+        var qop = Parameters["qop"];
+        if (qop != null)
+            output.AppendFormat(
+                ", qop={0}, cnonce=\"{1}\", nc={2}", qop, Parameters["cnonce"], Parameters["nc"]);
 
-      if (opaque != null)
-        buff.AppendFormat (", opaque=\"{0}\"", opaque);
-
-      var algo = _parameters["algorithm"];
-
-      if (algo != null)
-        buff.AppendFormat (", algorithm={0}", algo);
-
-      var qop = _parameters["qop"];
-
-      if (qop != null) {
-        var cnonce = _parameters["cnonce"];
-        var nc = _parameters["nc"];
-
-        buff.AppendFormat (
-          ", qop={0}, cnonce=\"{1}\", nc={2}",
-          qop,
-          cnonce,
-          nc
-        );
-      }
-
-      return buff.ToString ();
+        return output.ToString();
     }
 
     #endregion
-
-    #region Public Methods
-
-    public IIdentity ToIdentity ()
-    {
-      if (_scheme == AuthenticationSchemes.Basic) {
-        var uname = _parameters["username"];
-        var passwd = _parameters["password"];
-
-        return new HttpBasicIdentity (uname, passwd);
-      }
-
-      if (_scheme == AuthenticationSchemes.Digest)
-        return new HttpDigestIdentity (_parameters);
-
-      return null;
-    }
-
-    public override string ToString ()
-    {
-      if (_scheme == AuthenticationSchemes.Basic)
-        return ToBasicString ();
-
-      if (_scheme == AuthenticationSchemes.Digest)
-        return ToDigestString ();
-
-      return String.Empty;
-    }
-
-    #endregion
-  }
 }

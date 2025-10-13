@@ -1,13 +1,14 @@
 #region License
+
 /*
  * CookieException.cs
  *
- * This code is derived from CookieException.cs (System.Net) of Mono
+ * This code is derived from System.Net.CookieException.cs of Mono
  * (http://www.mono-project.com).
  *
  * The MIT License
  *
- * Copyright (c) 2012-2024 sta.blockhead
+ * Copyright (c) 2012-2014 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,63 +28,46 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 #region Authors
+
 /*
  * Authors:
  * - Lawrence Pit <loz@cable.a2000.nl>
  */
+
 #endregion
 
 using System;
 using System.Runtime.Serialization;
 using System.Security.Permissions;
 
-namespace WebSocketSharp.Net
+#pragma warning disable CS8625
+namespace WebSocketSharp.Net;
+
+/// <summary>
+///     The exception that is thrown when a <see cref="Cookie" /> gets an error.
+/// </summary>
+[Serializable]
+public class CookieException : FormatException, ISerializable
 {
-  /// <summary>
-  /// The exception that is thrown when a <see cref="Cookie"/> gets an error.
-  /// </summary>
-  [Serializable]
-  public class CookieException : FormatException, ISerializable
-  {
-    #region Internal Constructors
-
-    internal CookieException (string message)
-      : base (message)
-    {
-    }
-
-    internal CookieException (string message, Exception innerException)
-      : base (message, innerException)
-    {
-    }
-
-    #endregion
-
     #region Protected Constructors
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="CookieException"/> class
-    /// with the specified serialized data.
+    ///     Initializes a new instance of the <see cref="CookieException" /> class from
+    ///     the specified <see cref="SerializationInfo" /> and <see cref="StreamingContext" />.
     /// </summary>
     /// <param name="serializationInfo">
-    /// A <see cref="SerializationInfo"/> that contains the serialized
-    /// object data.
+    ///     A <see cref="SerializationInfo" /> that contains the serialized object data.
     /// </param>
     /// <param name="streamingContext">
-    /// A <see cref="StreamingContext"/> that specifies the source for
-    /// the deserialization.
+    ///     A <see cref="StreamingContext" /> that specifies the source for the deserialization.
     /// </param>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="serializationInfo"/> is <see langword="null"/>.
-    /// </exception>
-    protected CookieException (
-      SerializationInfo serializationInfo,
-      StreamingContext streamingContext
-    )
-      : base (serializationInfo, streamingContext)
+    protected CookieException(
+        SerializationInfo serializationInfo, StreamingContext streamingContext)
+        : base(serializationInfo, streamingContext)
     {
     }
 
@@ -92,43 +76,10 @@ namespace WebSocketSharp.Net
     #region Public Constructors
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="CookieException"/> class.
+    ///     Initializes a new instance of the <see cref="CookieException" /> class.
     /// </summary>
-    public CookieException ()
-      : base ()
+    public CookieException()
     {
-    }
-
-    #endregion
-
-    #region Public Methods
-
-    /// <summary>
-    /// Populates the specified <see cref="SerializationInfo"/> instance with
-    /// the data needed to serialize the current instance.
-    /// </summary>
-    /// <param name="serializationInfo">
-    /// A <see cref="SerializationInfo"/> that holds the serialized object data.
-    /// </param>
-    /// <param name="streamingContext">
-    /// A <see cref="StreamingContext"/> that specifies the destination for
-    /// the serialization.
-    /// </param>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="serializationInfo"/> is <see langword="null"/>.
-    /// </exception>
-    [
-      SecurityPermission (
-        SecurityAction.LinkDemand,
-        Flags = SecurityPermissionFlag.SerializationFormatter
-      )
-    ]
-    public override void GetObjectData (
-      SerializationInfo serializationInfo,
-      StreamingContext streamingContext
-    )
-    {
-      base.GetObjectData (serializationInfo, streamingContext);
     }
 
     #endregion
@@ -136,34 +87,60 @@ namespace WebSocketSharp.Net
     #region Explicit Interface Implementation
 
     /// <summary>
-    /// Populates the specified <see cref="SerializationInfo"/> instance with
-    /// the data needed to serialize the current instance.
+    ///     Populates the specified <see cref="SerializationInfo" /> with the data needed to serialize
+    ///     the current <see cref="CookieException" />.
     /// </summary>
     /// <param name="serializationInfo">
-    /// A <see cref="SerializationInfo"/> that holds the serialized object data.
+    ///     A <see cref="SerializationInfo" /> that holds the serialized object data.
     /// </param>
     /// <param name="streamingContext">
-    /// A <see cref="StreamingContext"/> that specifies the destination for
-    /// the serialization.
+    ///     A <see cref="StreamingContext" /> that specifies the destination for the serialization.
     /// </param>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="serializationInfo"/> is <see langword="null"/>.
-    /// </exception>
-    [
-      SecurityPermission (
+    [SecurityPermission(
         SecurityAction.LinkDemand,
         Flags = SecurityPermissionFlag.SerializationFormatter,
-        SerializationFormatter = true
-      )
-    ]
-    void ISerializable.GetObjectData (
-      SerializationInfo serializationInfo,
-      StreamingContext streamingContext
-    )
+        SerializationFormatter = true)]
+    void ISerializable.GetObjectData(
+        SerializationInfo serializationInfo, StreamingContext streamingContext)
     {
-      base.GetObjectData (serializationInfo, streamingContext);
+        base.GetObjectData(serializationInfo, streamingContext);
     }
 
     #endregion
-  }
+
+    #region Public Methods
+
+    /// <summary>
+    ///     Populates the specified <see cref="SerializationInfo" /> with the data needed to serialize
+    ///     the current <see cref="CookieException" />.
+    /// </summary>
+    /// <param name="serializationInfo">
+    ///     A <see cref="SerializationInfo" /> that holds the serialized object data.
+    /// </param>
+    /// <param name="streamingContext">
+    ///     A <see cref="StreamingContext" /> that specifies the destination for the serialization.
+    /// </param>
+    [SecurityPermission(
+        SecurityAction.LinkDemand, Flags = SecurityPermissionFlag.SerializationFormatter)]
+    public override void GetObjectData(
+        SerializationInfo serializationInfo, StreamingContext streamingContext)
+    {
+        base.GetObjectData(serializationInfo, streamingContext);
+    }
+
+    #endregion
+
+    #region Internal Constructors
+
+    internal CookieException(string message)
+        : base(message)
+    {
+    }
+
+    internal CookieException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+
+    #endregion
 }

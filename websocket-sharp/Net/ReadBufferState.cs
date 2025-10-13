@@ -1,4 +1,5 @@
 #region License
+
 /*
  * ReadBufferState.cs
  *
@@ -8,7 +9,7 @@
  * The MIT License
  *
  * Copyright (c) 2005 Novell, Inc. (http://www.novell.com)
- * Copyright (c) 2014-2023 sta.blockhead
+ * Copyright (c) 2014-2015 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,102 +29,52 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 #region Authors
+
 /*
  * Authors:
  * - Gonzalo Paniagua Javier <gonzalo@novell.com>
  */
+
 #endregion
 
-using System;
+#pragma warning disable CS8625
+namespace WebSocketSharp.Net;
 
-namespace WebSocketSharp.Net
+internal class ReadBufferState
 {
-  internal class ReadBufferState
-  {
-    #region Private Fields
+    #region Public Constructors
 
-    private HttpStreamAsyncResult _asyncResult;
-    private byte[]                _buffer;
-    private int                   _count;
-    private int                   _initialCount;
-    private int                   _offset;
+    public ReadBufferState(
+        byte[] buffer, int offset, int count, HttpStreamAsyncResult asyncResult)
+    {
+        Buffer = buffer;
+        Offset = offset;
+        Count = count;
+        InitialCount = count;
+        AsyncResult = asyncResult;
+    }
 
     #endregion
 
-    #region Public Constructors
-
-    public ReadBufferState (
-      byte[] buffer,
-      int offset,
-      int count,
-      HttpStreamAsyncResult asyncResult
-    )
-    {
-      _buffer = buffer;
-      _offset = offset;
-      _count = count;
-      _asyncResult = asyncResult;
-
-      _initialCount = count;
-    }
+    #region Private Fields
 
     #endregion
 
     #region Public Properties
 
-    public HttpStreamAsyncResult AsyncResult {
-      get {
-        return _asyncResult;
-      }
+    public HttpStreamAsyncResult AsyncResult { get; set; }
 
-      set {
-        _asyncResult = value;
-      }
-    }
+    public byte[] Buffer { get; set; }
 
-    public byte[] Buffer {
-      get {
-        return _buffer;
-      }
+    public int Count { get; set; }
 
-      set {
-        _buffer = value;
-      }
-    }
+    public int InitialCount { get; set; }
 
-    public int Count {
-      get {
-        return _count;
-      }
-
-      set {
-        _count = value;
-      }
-    }
-
-    public int InitialCount {
-      get {
-        return _initialCount;
-      }
-
-      set {
-        _initialCount = value;
-      }
-    }
-
-    public int Offset {
-      get {
-        return _offset;
-      }
-
-      set {
-        _offset = value;
-      }
-    }
+    public int Offset { get; set; }
 
     #endregion
-  }
 }

@@ -1,10 +1,11 @@
 #region License
+
 /*
  * HttpBase.cs
  *
  * The MIT License
  *
- * Copyright (c) 2012-2024 sta.blockhead
+ * Copyright (c) 2012-2014 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,294 +25,183 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Threading;
 using WebSocketSharp.Net;
 
-namespace WebSocketSharp
+#pragma warning disable CS8625
+namespace WebSocketSharp;
+
+internal abstract class HttpBase
 {
-  internal abstract class HttpBase
-  {
     #region Private Fields
 
-    private NameValueCollection _headers;
-    private static readonly int _maxMessageHeaderLength;
-    private string              _messageBody;
-    private byte[]              _messageBodyData;
-    private Version             _version;
+    private const int _headersMaxLength = 8192;
 
     #endregion
 
     #region Protected Fields
 
-    protected static readonly string CrLf;
-    protected static readonly string CrLfHt;
-    protected static readonly string CrLfSp;
+    protected const string CrLf = "\r\n";
 
     #endregion
 
-    #region Static Constructor
+    #region Internal Fields
 
-    static HttpBase ()
-    {
-      _maxMessageHeaderLength = 8192;
-
-      CrLf = "\r\n";
-      CrLfHt = "\r\n\t";
-      CrLfSp = "\r\n ";
-    }
+    internal byte[] EntityBodyData;
 
     #endregion
 
     #region Protected Constructors
 
-    protected HttpBase (Version version, NameValueCollection headers)
+    protected HttpBase(Version version, NameValueCollection headers)
     {
-      _version = version;
-      _headers = headers;
-    }
-
-    #endregion
-
-    #region Internal Properties
-
-    internal byte[] MessageBodyData {
-      get {
-        return _messageBodyData;
-      }
-    }
-
-    #endregion
-
-    #region Protected Properties
-
-    protected string HeaderSection {
-      get {
-        var buff = new StringBuilder (64);
-
-        var fmt = "{0}: {1}{2}";
-
-        foreach (var key in _headers.AllKeys)
-          buff.AppendFormat (fmt, key, _headers[key], CrLf);
-
-        buff.Append (CrLf);
-
-        return buff.ToString ();
-      }
-    }
-
-    #endregion
-
-    #region Public Properties
-
-    public bool HasMessageBody {
-      get {
-        return _messageBodyData != null;
-      }
-    }
-
-    public NameValueCollection Headers {
-      get {
-        return _headers;
-      }
-    }
-
-    public string MessageBody {
-      get {
-        if (_messageBody == null)
-          _messageBody = getMessageBody ();
-
-        return _messageBody;
-      }
-    }
-
-    public abstract string MessageHeader { get; }
-
-    public Version ProtocolVersion {
-      get {
-        return _version;
-      }
-    }
-
-    #endregion
-
-    #region Private Methods
-
-    private string getMessageBody ()
-    {
-      if (_messageBodyData == null || _messageBodyData.LongLength == 0)
-        return String.Empty;
-
-      var contentType = _headers["Content-Type"];
-
-      var enc = contentType != null && contentType.Length > 0
-                ? HttpUtility.GetEncoding (contentType)
-                : Encoding.UTF8;
-
-      return enc.GetString (_messageBodyData);
-    }
-
-    private static byte[] readMessageBodyFrom (Stream stream, string length)
-    {
-      long len;
-
-      if (!Int64.TryParse (length, out len)) {
-        var msg = "It could not be parsed.";
-
-        throw new ArgumentException (msg, "length");
-      }
-
-      if (len < 0) {
-        var msg = "Less than zero.";
-
-        throw new ArgumentOutOfRangeException ("length", msg);
-      }
-
-      return len > 1024
-             ? stream.ReadBytes (len, 1024)
-             : len > 0
-               ? stream.ReadBytes ((int) len)
-               : null;
-    }
-
-    private static string[] readMessageHeaderFrom (Stream stream)
-    {
-      var buff = new List<byte> ();
-      var cnt = 0;
-      Action<int> add =
-        i => {
-          if (i == -1) {
-            var msg = "The header could not be read from the data stream.";
-
-            throw new EndOfStreamException (msg);
-          }
-
-          buff.Add ((byte) i);
-
-          cnt++;
-        };
-
-      var end = false;
-
-      do {
-        end = stream.ReadByte ().IsEqualTo ('\r', add)
-              && stream.ReadByte ().IsEqualTo ('\n', add)
-              && stream.ReadByte ().IsEqualTo ('\r', add)
-              && stream.ReadByte ().IsEqualTo ('\n', add);
-
-        if (cnt > _maxMessageHeaderLength) {
-          var msg = "The length of the header is greater than the max length.";
-
-          throw new InvalidOperationException (msg);
-        }
-      }
-      while (!end);
-
-      var bytes = buff.ToArray ();
-
-      return Encoding.UTF8.GetString (bytes)
-             .Replace (CrLfSp, " ")
-             .Replace (CrLfHt, " ")
-             .Split (new[] { CrLf }, StringSplitOptions.RemoveEmptyEntries);
-    }
-
-    #endregion
-
-    #region Internal Methods
-
-    internal void WriteTo (Stream stream)
-    {
-      var bytes = ToByteArray ();
-
-      stream.Write (bytes, 0, bytes.Length);
+        ProtocolVersion = version;
+        Headers = headers;
     }
 
     #endregion
 
     #region Protected Methods
 
-    protected static T Read<T> (
-      Stream stream,
-      Func<string[], T> parser,
-      int millisecondsTimeout
-    )
-      where T : HttpBase
+    protected static T Read<T>(Stream stream, Func<string[], T> parser, int millisecondsTimeout)
+        where T : HttpBase
     {
-      T ret = null;
+        var timeout = false;
+        var timer = new Timer(
+            state =>
+            {
+                timeout = true;
+                stream.Close();
+            },
+            null,
+            millisecondsTimeout,
+            -1);
 
-      var timeout = false;
-      var timer = new Timer (
-                    state => {
-                      timeout = true;
+        T http = null;
+        Exception exception = null;
+        try
+        {
+            http = parser(readHeaders(stream, _headersMaxLength));
+            var contentLen = http.Headers["Content-Length"];
+            if (contentLen != null && contentLen.Length > 0)
+                http.EntityBodyData = readEntityBody(stream, contentLen);
+        }
+        catch (Exception ex)
+        {
+            exception = ex;
+        }
+        finally
+        {
+            timer.Change(-1, -1);
+            timer.Dispose();
+        }
 
-                      stream.Close ();
-                    },
-                    null,
-                    millisecondsTimeout,
-                    -1
-                  );
+        var msg = timeout
+            ? "A timeout has occurred while reading an HTTP request/response."
+            : exception != null
+                ? "An exception has occurred while reading an HTTP request/response."
+                : null;
 
-      Exception exception = null;
+        if (msg != null)
+            throw new WebSocketException(msg, exception);
 
-      try {
-        var header = readMessageHeaderFrom (stream);
-        ret = parser (header);
-
-        var contentLen = ret.Headers["Content-Length"];
-
-        if (contentLen != null && contentLen.Length > 0)
-          ret._messageBodyData = readMessageBodyFrom (stream, contentLen);
-      }
-      catch (Exception ex) {
-        exception = ex;
-      }
-      finally {
-        timer.Change (-1, -1);
-        timer.Dispose ();
-      }
-
-      if (timeout) {
-        var msg = "A timeout has occurred.";
-
-        throw new WebSocketException (msg);
-      }
-
-      if (exception != null) {
-        var msg = "An exception has occurred.";
-
-        throw new WebSocketException (msg, exception);
-      }
-
-      return ret;
+        return http;
     }
 
     #endregion
 
     #region Public Methods
 
-    public byte[] ToByteArray ()
+    public byte[] ToByteArray()
     {
-      var headerData = Encoding.UTF8.GetBytes (MessageHeader);
-
-      return _messageBodyData != null
-             ? headerData.Concat (_messageBodyData).ToArray ()
-             : headerData;
-    }
-
-    public override string ToString ()
-    {
-      return _messageBodyData != null
-             ? MessageHeader + MessageBody
-             : MessageHeader;
+        return Encoding.UTF8.GetBytes(ToString());
     }
 
     #endregion
-  }
+
+    #region Public Properties
+
+    public string EntityBody
+    {
+        get
+        {
+            if (EntityBodyData == null || EntityBodyData.LongLength == 0)
+                return string.Empty;
+
+            Encoding enc = null;
+
+            var contentType = Headers["Content-Type"];
+            if (contentType != null && contentType.Length > 0)
+                enc = HttpUtility.GetEncoding(contentType);
+
+            return (enc ?? Encoding.UTF8).GetString(EntityBodyData);
+        }
+    }
+
+    public NameValueCollection Headers { get; }
+
+    public Version ProtocolVersion { get; }
+
+    #endregion
+
+    #region Private Methods
+
+    private static byte[] readEntityBody(Stream stream, string length)
+    {
+        long len;
+        if (!long.TryParse(length, out len))
+            throw new ArgumentException("Cannot be parsed.", nameof(length));
+
+        if (len < 0)
+            throw new ArgumentOutOfRangeException(nameof(length), "Less than zero.");
+
+        return len > 1024
+            ? stream.ReadBytes(len, 1024)
+            : len > 0
+                ? stream.ReadBytes((int)len)
+                : null;
+    }
+
+    private static string[] readHeaders(Stream stream, int maxLength)
+    {
+        var buff = new List<byte>();
+        var cnt = 0;
+        Action<int> add = i =>
+        {
+            if (i == -1)
+                throw new EndOfStreamException("The header cannot be read from the data source.");
+
+            buff.Add((byte)i);
+            cnt++;
+        };
+
+        var read = false;
+        while (cnt < maxLength)
+            if (stream.ReadByte().EqualsWith('\r', add) &&
+                stream.ReadByte().EqualsWith('\n', add) &&
+                stream.ReadByte().EqualsWith('\r', add) &&
+                stream.ReadByte().EqualsWith('\n', add))
+            {
+                read = true;
+                break;
+            }
+
+        if (!read)
+            throw new WebSocketException("The length of header part is greater than the max length.");
+
+        return Encoding.UTF8.GetString(buff.ToArray())
+            .Replace($"{CrLf} ", " ")
+            .Replace($"{CrLf}\t", " ")
+            .Split(new[] { CrLf }, StringSplitOptions.RemoveEmptyEntries);
+    }
+
+    #endregion
 }

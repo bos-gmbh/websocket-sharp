@@ -1,14 +1,15 @@
 #region License
+
 /*
  * CookieCollection.cs
  *
- * This code is derived from CookieCollection.cs (System.Net) of Mono
+ * This code is derived from System.Net.CookieCollection.cs of Mono
  * (http://www.mono-project.com).
  *
  * The MIT License
  *
  * Copyright (c) 2004,2009 Novell, Inc. (http://www.novell.com)
- * Copyright (c) 2012-2025 sta.blockhead
+ * Copyright (c) 2012-2014 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,15 +29,18 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 #region Authors
+
 /*
  * Authors:
  * - Lawrence Pit <loz@cable.a2000.nl>
  * - Gonzalo Paniagua Javier <gonzalo@ximian.com>
  * - Sebastien Pouliot <sebastien@ximian.com>
  */
+
 #endregion
 
 using System;
@@ -45,62 +49,48 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace WebSocketSharp.Net
+#pragma warning disable CS8625
+namespace WebSocketSharp.Net;
+
+/// <summary>
+///     Provides a collection container for instances of the <see cref="Cookie" /> class.
+/// </summary>
+[Serializable]
+public class CookieCollection : ICollection, IEnumerable
 {
-  /// <summary>
-  /// Provides a collection of instances of the <see cref="Cookie"/> class.
-  /// </summary>
-  [Serializable]
-  public class CookieCollection : ICollection<Cookie>
-  {
-    #region Private Fields
-
-    private List<Cookie> _list;
-    private bool         _readOnly;
-    private object       _syncRoot;
-
-    #endregion
-
     #region Public Constructors
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="CookieCollection"/> class.
+    ///     Initializes a new instance of the <see cref="CookieCollection" /> class.
     /// </summary>
-    public CookieCollection ()
+    public CookieCollection()
     {
-      _list = new List<Cookie> ();
-      _syncRoot = ((ICollection) _list).SyncRoot;
+        _list = new List<Cookie>();
     }
+
+    #endregion
+
+    #region Private Fields
+
+    private List<Cookie> _list;
+    private object _sync;
 
     #endregion
 
     #region Internal Properties
 
-    internal IList<Cookie> List {
-      get {
-        return _list;
-      }
-    }
+    internal IList<Cookie> List => _list;
 
-    internal bool ReadOnly {
-      get {
-        return _readOnly;
-      }
+    internal IEnumerable<Cookie> Sorted
+    {
+        get
+        {
+            var list = new List<Cookie>(_list);
+            if (list.Count > 1)
+                list.Sort(compareCookieWithinSorted);
 
-      set {
-        _readOnly = value;
-      }
-    }
-
-    internal ICollection<Cookie> SortedList {
-      get {
-        var list = new List<Cookie> (_list);
-
-        if (list.Count > 1)
-          list.Sort (compareForSortedList);
-
-        return list;
-      }
+            return list;
+        }
     }
 
     #endregion
@@ -108,572 +98,370 @@ namespace WebSocketSharp.Net
     #region Public Properties
 
     /// <summary>
-    /// Gets the number of cookies in the collection.
+    ///     Gets the number of cookies in the collection.
     /// </summary>
     /// <value>
-    /// An <see cref="int"/> that represents the number of cookies in
-    /// the collection.
+    ///     An <see cref="int" /> that represents the number of cookies in the collection.
     /// </value>
-    public int Count {
-      get {
-        return _list.Count;
-      }
-    }
+    public int Count => _list.Count;
 
     /// <summary>
-    /// Gets a value indicating whether the collection is read-only.
+    ///     Gets a value indicating whether the collection is read-only.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   <c>true</c> if the collection is read-only; otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <c>false</c>.
-    ///   </para>
+    ///     <c>true</c> if the collection is read-only; otherwise, <c>false</c>.
+    ///     The default value is <c>true</c>.
     /// </value>
-    public bool IsReadOnly {
-      get {
-        return _readOnly;
-      }
-    }
+    public bool IsReadOnly =>
+        // LAMESPEC: So how is one supposed to create a writable CookieCollection instance?
+        // We simply ignore this property, as this collection is always writable.
+        true;
 
     /// <summary>
-    /// Gets a value indicating whether the access to the collection is
-    /// thread safe.
+    ///     Gets a value indicating whether the access to the collection is thread safe.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   <c>true</c> if the access to the collection is thread safe;
-    ///   otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <c>false</c>.
-    ///   </para>
+    ///     <c>true</c> if the access to the collection is thread safe; otherwise, <c>false</c>.
+    ///     The default value is <c>false</c>.
     /// </value>
-    public bool IsSynchronized {
-      get {
-        return false;
-      }
-    }
+    public bool IsSynchronized => false;
 
     /// <summary>
-    /// Gets the cookie at the specified index from the collection.
+    ///     Gets the <see cref="Cookie" /> at the specified <paramref name="index" /> from
+    ///     the collection.
     /// </summary>
     /// <value>
-    /// A <see cref="Cookie"/> at the specified index in the collection.
+    ///     A <see cref="Cookie" /> at the specified <paramref name="index" /> in the collection.
     /// </value>
     /// <param name="index">
-    /// An <see cref="int"/> that specifies the zero-based index of the cookie
-    /// to find.
+    ///     An <see cref="int" /> that represents the zero-based index of the <see cref="Cookie" />
+    ///     to find.
     /// </param>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// <paramref name="index"/> is out of allowable range for the collection.
+    ///     <paramref name="index" /> is out of allowable range of indexes for the collection.
     /// </exception>
-    public Cookie this[int index] {
-      get {
-        if (index < 0 || index >= _list.Count)
-          throw new ArgumentOutOfRangeException ("index");
+    public Cookie this[int index]
+    {
+        get
+        {
+            if (index < 0 || index >= _list.Count)
+                throw new ArgumentOutOfRangeException(nameof(index));
 
-        return _list[index];
-      }
+            return _list[index];
+        }
     }
 
     /// <summary>
-    /// Gets the cookie with the specified name from the collection.
+    ///     Gets the <see cref="Cookie" /> with the specified <paramref name="name" /> from
+    ///     the collection.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   A <see cref="Cookie"/> with the specified name in the collection.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if not found.
-    ///   </para>
+    ///     A <see cref="Cookie" /> with the specified <paramref name="name" /> in the collection.
     /// </value>
     /// <param name="name">
-    /// A <see cref="string"/> that specifies the name of the cookie to find.
+    ///     A <see cref="string" /> that represents the name of the <see cref="Cookie" /> to find.
     /// </param>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="name"/> is <see langword="null"/>.
+    ///     <paramref name="name" /> is <see langword="null" />.
     /// </exception>
-    public Cookie this[string name] {
-      get {
-        if (name == null)
-          throw new ArgumentNullException ("name");
+    public Cookie this[string name]
+    {
+        get
+        {
+            if (name == null)
+                throw new ArgumentNullException(nameof(name));
 
-        var caseInsensitive = StringComparison.InvariantCultureIgnoreCase;
+            foreach (var cookie in Sorted)
+                if (cookie.Name.Equals(name, StringComparison.InvariantCultureIgnoreCase))
+                    return cookie;
 
-        foreach (var cookie in SortedList) {
-          if (cookie.Name.Equals (name, caseInsensitive))
-            return cookie;
+            return null;
         }
-
-        return null;
-      }
     }
 
     /// <summary>
-    /// Gets an object used to synchronize access to the collection.
+    ///     Gets an object used to synchronize access to the collection.
     /// </summary>
     /// <value>
-    /// An <see cref="object"/> used to synchronize access to the collection.
+    ///     An <see cref="Object" /> used to synchronize access to the collection.
     /// </value>
-    public object SyncRoot {
-      get {
-        return _syncRoot;
-      }
-    }
+    public object SyncRoot => _sync ?? (_sync = ((ICollection)_list).SyncRoot);
 
     #endregion
 
     #region Private Methods
 
-    private void add (Cookie cookie)
+    private static int compareCookieWithinSort(Cookie x, Cookie y)
     {
-      var idx = search (cookie);
-
-      if (idx == -1) {
-        _list.Add (cookie);
-
-        return;
-      }
-
-      _list[idx] = cookie;
+        return x.Name.Length + x.Value.Length - (y.Name.Length + y.Value.Length);
     }
 
-    private static int compareForSort (Cookie x, Cookie y)
+    private static int compareCookieWithinSorted(Cookie x, Cookie y)
     {
-      return (x.Name.Length + x.Value.Length)
-             - (y.Name.Length + y.Value.Length);
+        var ret = 0;
+        return (ret = x.Version - y.Version) != 0
+            ? ret
+            : (ret = x.Name.CompareTo(y.Name)) != 0
+                ? ret
+                : y.Path.Length - x.Path.Length;
     }
 
-    private static int compareForSortedList (Cookie x, Cookie y)
+    private static CookieCollection parseRequest(string value)
     {
-      var ret = x.Version - y.Version;
+        var cookies = new CookieCollection();
 
-      if (ret != 0)
-        return ret;
+        Cookie cookie = null;
+        var ver = 0;
+        var pairs = splitCookieHeaderValue(value);
+        for (var i = 0; i < pairs.Length; i++)
+        {
+            var pair = pairs[i].Trim();
+            if (pair.Length == 0)
+                continue;
 
-      ret = x.Name.CompareTo (y.Name);
+            if (pair.StartsWith("$version", StringComparison.InvariantCultureIgnoreCase))
+            {
+                ver = int.Parse(pair.GetValue('=', true));
+            }
+            else if (pair.StartsWith("$path", StringComparison.InvariantCultureIgnoreCase))
+            {
+                if (cookie != null)
+                    cookie.Path = pair.GetValue('=');
+            }
+            else if (pair.StartsWith("$domain", StringComparison.InvariantCultureIgnoreCase))
+            {
+                if (cookie != null)
+                    cookie.Domain = pair.GetValue('=');
+            }
+            else if (pair.StartsWith("$port", StringComparison.InvariantCultureIgnoreCase))
+            {
+                var port = pair.Equals("$port", StringComparison.InvariantCultureIgnoreCase)
+                    ? "\"\""
+                    : pair.GetValue('=');
 
-      if (ret != 0)
-        return ret;
+                if (cookie != null)
+                    cookie.Port = port;
+            }
+            else
+            {
+                if (cookie != null)
+                    cookies.Add(cookie);
 
-      return y.Path.Length - x.Path.Length;
-    }
+                string name;
+                var val = string.Empty;
 
-    private static CookieCollection parseRequest (string value)
-    {
-      var ret = new CookieCollection ();
+                var pos = pair.IndexOf('=');
+                if (pos == -1)
+                {
+                    name = pair;
+                }
+                else if (pos == pair.Length - 1)
+                {
+                    name = pair.Substring(0, pos).TrimEnd(' ');
+                }
+                else
+                {
+                    name = pair.Substring(0, pos).TrimEnd(' ');
+                    val = pair.Substring(pos + 1).TrimStart(' ');
+                }
 
-      Cookie cookie = null;
-      var ver = 0;
-      var caseInsensitive = StringComparison.InvariantCultureIgnoreCase;
-
-      var pairs = value.SplitHeaderValue (',', ';').ToList ();
-
-      for (var i = 0; i < pairs.Count; i++) {
-        var pair = pairs[i].Trim ();
-
-        if (pair.Length == 0)
-          continue;
-
-        var idx = pair.IndexOf ('=');
-
-        if (idx == -1) {
-          if (cookie == null)
-            continue;
-
-          if (pair.Equals ("$port", caseInsensitive)) {
-            cookie.Port = "\"\"";
-
-            continue;
-          }
-
-          continue;
-        }
-
-        if (idx == 0) {
-          if (cookie != null) {
-            ret.add (cookie);
-
-            cookie = null;
-          }
-
-          continue;
-        }
-
-        var name = pair.Substring (0, idx).TrimEnd (' ');
-        var val = idx < pair.Length - 1
-                  ? pair.Substring (idx + 1).TrimStart (' ')
-                  : String.Empty;
-
-        if (name.Equals ("$version", caseInsensitive)) {
-          if (val.Length == 0)
-            continue;
-
-          var s = val.Unquote ();
-
-          int num;
-
-          if (!Int32.TryParse (s, out num))
-            continue;
-
-          ver = num;
-
-          continue;
-        }
-
-        if (name.Equals ("$path", caseInsensitive)) {
-          if (cookie == null)
-            continue;
-
-          if (val.Length == 0)
-            continue;
-
-          cookie.Path = val;
-
-          continue;
-        }
-
-        if (name.Equals ("$domain", caseInsensitive)) {
-          if (cookie == null)
-            continue;
-
-          if (val.Length == 0)
-            continue;
-
-          cookie.Domain = val;
-
-          continue;
-        }
-
-        if (name.Equals ("$port", caseInsensitive)) {
-          if (cookie == null)
-            continue;
-
-          if (val.Length == 0)
-            continue;
-
-          cookie.Port = val;
-
-          continue;
+                cookie = new Cookie(name, val);
+                if (ver != 0)
+                    cookie.Version = ver;
+            }
         }
 
         if (cookie != null)
-          ret.add (cookie);
+            cookies.Add(cookie);
 
-        if (!Cookie.TryCreate (name, val, out cookie))
-          continue;
-
-        if (ver != 0)
-          cookie.Version = ver;
-      }
-
-      if (cookie != null)
-        ret.add (cookie);
-
-      return ret;
+        return cookies;
     }
 
-    private static CookieCollection parseResponse (string value)
+    private static CookieCollection parseResponse(string value)
     {
-      var ret = new CookieCollection ();
-
-      Cookie cookie = null;
-      var caseInsensitive = StringComparison.InvariantCultureIgnoreCase;
-
-      var pairs = value.SplitHeaderValue (',', ';').ToList ();
-
-      for (var i = 0; i < pairs.Count; i++) {
-        var pair = pairs[i].Trim ();
-
-        if (pair.Length == 0)
-          continue;
-
-        var idx = pair.IndexOf ('=');
-
-        if (idx == -1) {
-          if (cookie == null)
-            continue;
-
-          if (pair.Equals ("port", caseInsensitive)) {
-            cookie.Port = "\"\"";
-
-            continue;
-          }
-
-          if (pair.Equals ("discard", caseInsensitive)) {
-            cookie.Discard = true;
-
-            continue;
-          }
-
-          if (pair.Equals ("secure", caseInsensitive)) {
-            cookie.Secure = true;
-
-            continue;
-          }
-
-          if (pair.Equals ("httponly", caseInsensitive)) {
-            cookie.HttpOnly = true;
-
-            continue;
-          }
-
-          continue;
-        }
-
-        if (idx == 0) {
-          if (cookie != null) {
-            ret.add (cookie);
-
-            cookie = null;
-          }
-
-          continue;
-        }
-
-        var name = pair.Substring (0, idx).TrimEnd (' ');
-        var val = idx < pair.Length - 1
-                  ? pair.Substring (idx + 1).TrimStart (' ')
-                  : String.Empty;
-
-        if (name.Equals ("version", caseInsensitive)) {
-          if (cookie == null)
-            continue;
-
-          if (val.Length == 0)
-            continue;
-
-          var s = val.Unquote ();
-
-          int num;
-
-          if (!Int32.TryParse (s, out num))
-            continue;
-
-          cookie.Version = num;
-
-          continue;
-        }
-
-        if (name.Equals ("expires", caseInsensitive)) {
-          if (val.Length == 0)
-            continue;
-
-          if (i == pairs.Count - 1)
-            break;
-
-          i++;
-
-          if (cookie == null)
-            continue;
-
-          if (cookie.Expires != DateTime.MinValue)
-            continue;
-
-          var buff = new StringBuilder (val, 32);
-
-          buff.AppendFormat (", {0}", pairs[i].Trim ());
-
-          var s = buff.ToString ();
-          var fmts = new[] { "ddd, dd'-'MMM'-'yyyy HH':'mm':'ss 'GMT'", "r" };
-          var provider = CultureInfo.CreateSpecificCulture ("en-US");
-          var style = DateTimeStyles.AdjustToUniversal
-                      | DateTimeStyles.AssumeUniversal;
-
-          DateTime expires;
-
-          var done = DateTime.TryParseExact (
-                       s,
-                       fmts,
-                       provider,
-                       style,
-                       out expires
-                     );
-
-          if (!done)
-            continue;
-
-          cookie.Expires = expires.ToLocalTime ();
-
-          continue;
-        }
-
-        if (name.Equals ("max-age", caseInsensitive)) {
-          if (cookie == null)
-            continue;
-
-          if (val.Length == 0)
-            continue;
-
-          var s = val.Unquote ();
-
-          int maxAge;
-
-          if (!Int32.TryParse (s, out maxAge))
-            continue;
-
-          cookie.MaxAge = maxAge;
-
-          continue;
-        }
-
-        if (name.Equals ("path", caseInsensitive)) {
-          if (cookie == null)
-            continue;
-
-          if (val.Length == 0)
-            continue;
-
-          cookie.Path = val;
-
-          continue;
-        }
-
-        if (name.Equals ("domain", caseInsensitive)) {
-          if (cookie == null)
-            continue;
-
-          if (val.Length == 0)
-            continue;
-
-          cookie.Domain = val;
-
-          continue;
-        }
-
-        if (name.Equals ("port", caseInsensitive)) {
-          if (cookie == null)
-            continue;
-
-          if (val.Length == 0)
-            continue;
-
-          cookie.Port = val;
-
-          continue;
-        }
-
-        if (name.Equals ("comment", caseInsensitive)) {
-          if (cookie == null)
-            continue;
-
-          if (val.Length == 0)
-            continue;
-
-          cookie.Comment = urlDecode (val, Encoding.UTF8);
-
-          continue;
-        }
-
-        if (name.Equals ("commenturl", caseInsensitive)) {
-          if (cookie == null)
-            continue;
-
-          if (val.Length == 0)
-            continue;
-
-          cookie.CommentUri = val.Unquote ().ToUri ();
-
-          continue;
-        }
-
-        if (name.Equals ("samesite", caseInsensitive)) {
-          if (cookie == null)
-            continue;
-
-          if (val.Length == 0)
-            continue;
-
-          cookie.SameSite = val.Unquote ();
-
-          continue;
+        var cookies = new CookieCollection();
+
+        Cookie cookie = null;
+        var pairs = splitCookieHeaderValue(value);
+        for (var i = 0; i < pairs.Length; i++)
+        {
+            var pair = pairs[i].Trim();
+            if (pair.Length == 0)
+                continue;
+
+            if (pair.StartsWith("version", StringComparison.InvariantCultureIgnoreCase))
+            {
+                if (cookie != null)
+                    cookie.Version = int.Parse(pair.GetValue('=', true));
+            }
+            else if (pair.StartsWith("expires", StringComparison.InvariantCultureIgnoreCase))
+            {
+                var buff = new StringBuilder(pair.GetValue('='), 32);
+                if (i < pairs.Length - 1)
+                    buff.AppendFormat(", {0}", pairs[++i].Trim());
+
+                DateTime expires;
+                if (!DateTime.TryParseExact(
+                        buff.ToString(),
+                        new[] { "ddd, dd'-'MMM'-'yyyy HH':'mm':'ss 'GMT'", "r" },
+                        CultureInfo.CreateSpecificCulture("en-US"),
+                        DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+                        out expires))
+                    expires = DateTime.Now;
+
+                if (cookie != null && cookie.Expires == DateTime.MinValue)
+                    cookie.Expires = expires.ToLocalTime();
+            }
+            else if (pair.StartsWith("max-age", StringComparison.InvariantCultureIgnoreCase))
+            {
+                var max = int.Parse(pair.GetValue('=', true));
+                var expires = DateTime.Now.AddSeconds(max);
+                if (cookie != null)
+                    cookie.Expires = expires;
+            }
+            else if (pair.StartsWith("path", StringComparison.InvariantCultureIgnoreCase))
+            {
+                if (cookie != null)
+                    cookie.Path = pair.GetValue('=');
+            }
+            else if (pair.StartsWith("domain", StringComparison.InvariantCultureIgnoreCase))
+            {
+                if (cookie != null)
+                    cookie.Domain = pair.GetValue('=');
+            }
+            else if (pair.StartsWith("port", StringComparison.InvariantCultureIgnoreCase))
+            {
+                var port = pair.Equals("port", StringComparison.InvariantCultureIgnoreCase)
+                    ? "\"\""
+                    : pair.GetValue('=');
+
+                if (cookie != null)
+                    cookie.Port = port;
+            }
+            else if (pair.StartsWith("comment", StringComparison.InvariantCultureIgnoreCase))
+            {
+                if (cookie != null)
+                    cookie.Comment = pair.GetValue('=').UrlDecode();
+            }
+            else if (pair.StartsWith("commenturl", StringComparison.InvariantCultureIgnoreCase))
+            {
+                if (cookie != null)
+                    cookie.CommentUri = pair.GetValue('=', true).ToUri();
+            }
+            else if (pair.StartsWith("discard", StringComparison.InvariantCultureIgnoreCase))
+            {
+                if (cookie != null)
+                    cookie.Discard = true;
+            }
+            else if (pair.StartsWith("secure", StringComparison.InvariantCultureIgnoreCase))
+            {
+                if (cookie != null)
+                    cookie.Secure = true;
+            }
+            else if (pair.StartsWith("httponly", StringComparison.InvariantCultureIgnoreCase))
+            {
+                if (cookie != null)
+                    cookie.HttpOnly = true;
+            }
+            else
+            {
+                if (cookie != null)
+                    cookies.Add(cookie);
+
+                string name;
+                var val = string.Empty;
+
+                var pos = pair.IndexOf('=');
+                if (pos == -1)
+                {
+                    name = pair;
+                }
+                else if (pos == pair.Length - 1)
+                {
+                    name = pair.Substring(0, pos).TrimEnd(' ');
+                }
+                else
+                {
+                    name = pair.Substring(0, pos).TrimEnd(' ');
+                    val = pair.Substring(pos + 1).TrimStart(' ');
+                }
+
+                cookie = new Cookie(name, val);
+            }
         }
 
         if (cookie != null)
-          ret.add (cookie);
+            cookies.Add(cookie);
 
-        Cookie.TryCreate (name, val, out cookie);
-      }
-
-      if (cookie != null)
-        ret.add (cookie);
-
-      return ret;
+        return cookies;
     }
 
-    private int search (Cookie cookie)
+    private int searchCookie(Cookie cookie)
     {
-      for (var i = _list.Count - 1; i >= 0; i--) {
-        if (_list[i].EqualsWithoutValue (cookie))
-          return i;
-      }
+        var name = cookie.Name;
+        var path = cookie.Path;
+        var domain = cookie.Domain;
+        var ver = cookie.Version;
 
-      return -1;
+        for (var i = _list.Count - 1; i >= 0; i--)
+        {
+            var c = _list[i];
+            if (c.Name.Equals(name, StringComparison.InvariantCultureIgnoreCase) &&
+                c.Path.Equals(path, StringComparison.InvariantCulture) &&
+                c.Domain.Equals(domain, StringComparison.InvariantCultureIgnoreCase) &&
+                c.Version == ver)
+                return i;
+        }
+
+        return -1;
     }
 
-    private static string urlDecode (string s, Encoding encoding)
+    private static string[] splitCookieHeaderValue(string value)
     {
-      if (s.IndexOfAny (new[] { '%', '+' }) == -1)
-        return s;
-
-      try {
-        return HttpUtility.UrlDecode (s, encoding);
-      }
-      catch {
-        return null;
-      }
+        return new List<string>(value.SplitHeaderValue(',', ';')).ToArray();
     }
 
     #endregion
 
     #region Internal Methods
 
-    internal static CookieCollection Parse (string value, bool response)
+    internal static CookieCollection Parse(string value, bool response)
     {
-      try {
-        return response ? parseResponse (value) : parseRequest (value);
-      }
-      catch (Exception ex) {
-        throw new CookieException ("It could not be parsed.", ex);
-      }
+        return response
+            ? parseResponse(value)
+            : parseRequest(value);
     }
 
-    internal void SetOrRemove (Cookie cookie)
+    internal void SetOrRemove(Cookie cookie)
     {
-      var idx = search (cookie);
+        var pos = searchCookie(cookie);
+        if (pos == -1)
+        {
+            if (!cookie.Expired)
+                _list.Add(cookie);
 
-      if (idx == -1) {
-        if (cookie.Expired)
-          return;
+            return;
+        }
 
-        _list.Add (cookie);
+        if (!cookie.Expired)
+        {
+            _list[pos] = cookie;
+            return;
+        }
 
-        return;
-      }
-
-      if (cookie.Expired) {
-        _list.RemoveAt (idx);
-
-        return;
-      }
-
-      _list[idx] = cookie;
+        _list.RemoveAt(pos);
     }
 
-    internal void SetOrRemove (CookieCollection cookies)
+    internal void SetOrRemove(CookieCollection cookies)
     {
-      foreach (var cookie in cookies._list)
-        SetOrRemove (cookie);
+        foreach (Cookie cookie in cookies)
+            SetOrRemove(cookie);
     }
 
-    internal void Sort ()
+    internal void Sort()
     {
-      if (_list.Count < 2)
-        return;
-
-      _list.Sort (compareForSort);
+        if (_list.Count > 1)
+            _list.Sort(compareCookieWithinSort);
     }
 
     #endregion
@@ -681,203 +469,150 @@ namespace WebSocketSharp.Net
     #region Public Methods
 
     /// <summary>
-    /// Adds the specified cookie to the collection.
+    ///     Adds the specified <paramref name="cookie" /> to the collection.
     /// </summary>
     /// <param name="cookie">
-    /// A <see cref="Cookie"/> to add.
+    ///     A <see cref="Cookie" /> to add.
     /// </param>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="cookie"/> is <see langword="null"/>.
+    ///     <paramref name="cookie" /> is <see langword="null" />.
     /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// This method is not available if the collection is read-only.
-    /// </exception>
-    public void Add (Cookie cookie)
+    public void Add(Cookie cookie)
     {
-      if (_readOnly) {
-        var msg = "The collection is read-only.";
+        if (cookie == null)
+            throw new ArgumentNullException(nameof(cookie));
 
-        throw new InvalidOperationException (msg);
-      }
+        var pos = searchCookie(cookie);
+        if (pos == -1)
+        {
+            _list.Add(cookie);
+            return;
+        }
 
-      if (cookie == null)
-        throw new ArgumentNullException ("cookie");
-
-      add (cookie);
+        _list[pos] = cookie;
     }
 
     /// <summary>
-    /// Adds the specified cookies to the collection.
+    ///     Adds the specified <paramref name="cookies" /> to the collection.
     /// </summary>
     /// <param name="cookies">
-    /// A <see cref="CookieCollection"/> that contains the cookies to add.
+    ///     A <see cref="CookieCollection" /> that contains the cookies to add.
     /// </param>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="cookies"/> is <see langword="null"/>.
+    ///     <paramref name="cookies" /> is <see langword="null" />.
     /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// This method is not available if the collection is read-only.
-    /// </exception>
-    public void Add (CookieCollection cookies)
+    public void Add(CookieCollection cookies)
     {
-      if (_readOnly) {
-        var msg = "The collection is read-only.";
+        if (cookies == null)
+            throw new ArgumentNullException(nameof(cookies));
 
-        throw new InvalidOperationException (msg);
-      }
-
-      if (cookies == null)
-        throw new ArgumentNullException ("cookies");
-
-      foreach (var cookie in cookies._list)
-        add (cookie);
+        foreach (Cookie cookie in cookies)
+            Add(cookie);
     }
 
     /// <summary>
-    /// Removes all cookies from the collection.
-    /// </summary>
-    /// <exception cref="InvalidOperationException">
-    /// This method is not available if the collection is read-only.
-    /// </exception>
-    public void Clear ()
-    {
-      if (_readOnly) {
-        var msg = "The collection is read-only.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _list.Clear ();
-    }
-
-    /// <summary>
-    /// Determines whether the collection contains the specified cookie.
-    /// </summary>
-    /// <returns>
-    /// <c>true</c> if the cookie is found in the collection; otherwise,
-    /// <c>false</c>.
-    /// </returns>
-    /// <param name="cookie">
-    /// A <see cref="Cookie"/> to find.
-    /// </param>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="cookie"/> is <see langword="null"/>.
-    /// </exception>
-    public bool Contains (Cookie cookie)
-    {
-      if (cookie == null)
-        throw new ArgumentNullException ("cookie");
-
-      return search (cookie) > -1;
-    }
-
-    /// <summary>
-    /// Copies the elements of the collection to the specified array,
-    /// starting at the specified index.
+    ///     Copies the elements of the collection to the specified <see cref="Array" />, starting at
+    ///     the specified <paramref name="index" /> in the <paramref name="array" />.
     /// </summary>
     /// <param name="array">
-    /// An array of <see cref="Cookie"/> that specifies the destination of
-    /// the elements copied from the collection.
+    ///     An <see cref="Array" /> that represents the destination of the elements copied from
+    ///     the collection.
     /// </param>
     /// <param name="index">
-    /// An <see cref="int"/> that specifies the zero-based index in
-    /// the array at which copying starts.
+    ///     An <see cref="int" /> that represents the zero-based index in <paramref name="array" />
+    ///     at which copying begins.
     /// </param>
-    /// <exception cref="ArgumentException">
-    /// The space from <paramref name="index"/> to the end of
-    /// <paramref name="array"/> is not enough to copy to.
-    /// </exception>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="array"/> is <see langword="null"/>.
+    ///     <paramref name="array" /> is <see langword="null" />.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// <paramref name="index"/> is less than zero.
+    ///     <paramref name="index" /> is less than zero.
     /// </exception>
-    public void CopyTo (Cookie[] array, int index)
+    /// <exception cref="ArgumentException">
+    ///     <para>
+    ///         <paramref name="array" /> is multidimensional.
+    ///     </para>
+    ///     <para>
+    ///         -or-
+    ///     </para>
+    ///     <para>
+    ///         The number of elements in the collection is greater than the available space from
+    ///         <paramref name="index" /> to the end of the destination <paramref name="array" />.
+    ///     </para>
+    /// </exception>
+    /// <exception cref="InvalidCastException">
+    ///     The elements in the collection cannot be cast automatically to the type of the destination
+    ///     <paramref name="array" />.
+    /// </exception>
+    public void CopyTo(Array array, int index)
     {
-      if (array == null)
-        throw new ArgumentNullException ("array");
+        if (array == null)
+            throw new ArgumentNullException(nameof(array));
 
-      if (index < 0) {
-        var msg = "Less than zero.";
+        if (index < 0)
+            throw new ArgumentOutOfRangeException(nameof(index), "Less than zero.");
 
-        throw new ArgumentOutOfRangeException ("index", msg);
-      }
+        if (array.Rank > 1)
+            throw new ArgumentException("Multidimensional.", nameof(array));
 
-      if (array.Length - index < _list.Count) {
-        var msg = "The available space of the array is not enough to copy to.";
+        if (array.Length - index < _list.Count)
+            throw new ArgumentException(
+                "The number of elements in this collection is greater than the available space of the destination array.");
 
-        throw new ArgumentException (msg);
-      }
+        if (!array.GetType().GetElementType().IsAssignableFrom(typeof(Cookie)))
+            throw new InvalidCastException(
+                "The elements in this collection cannot be cast automatically to the type of the destination array.");
 
-      _list.CopyTo (array, index);
+        ((IList)_list).CopyTo(array, index);
     }
 
     /// <summary>
-    /// Gets the enumerator that iterates through the collection.
+    ///     Copies the elements of the collection to the specified array of <see cref="Cookie" />,
+    ///     starting at the specified <paramref name="index" /> in the <paramref name="array" />.
     /// </summary>
-    /// <returns>
-    /// An <see cref="T:System.Collections.Generic.IEnumerator{Cookie}"/>
-    /// instance that can be used to iterate through the collection.
-    /// </returns>
-    public IEnumerator<Cookie> GetEnumerator ()
-    {
-      return _list.GetEnumerator ();
-    }
-
-    /// <summary>
-    /// Removes the specified cookie from the collection.
-    /// </summary>
-    /// <returns>
-    /// <c>true</c> if the cookie is successfully found and removed;
-    /// otherwise, <c>false</c>.
-    /// </returns>
-    /// <param name="cookie">
-    /// A <see cref="Cookie"/> to remove.
+    /// <param name="array">
+    ///     An array of <see cref="Cookie" /> that represents the destination of the elements
+    ///     copied from the collection.
+    /// </param>
+    /// <param name="index">
+    ///     An <see cref="int" /> that represents the zero-based index in <paramref name="array" />
+    ///     at which copying begins.
     /// </param>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="cookie"/> is <see langword="null"/>.
+    ///     <paramref name="array" /> is <see langword="null" />.
     /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// This method is not available if the collection is read-only.
+    /// <exception cref="ArgumentOutOfRangeException">
+    ///     <paramref name="index" /> is less than zero.
     /// </exception>
-    public bool Remove (Cookie cookie)
+    /// <exception cref="ArgumentException">
+    ///     The number of elements in the collection is greater than the available space from
+    ///     <paramref name="index" /> to the end of the destination <paramref name="array" />.
+    /// </exception>
+    public void CopyTo(Cookie[] array, int index)
     {
-      if (_readOnly) {
-        var msg = "The collection is read-only.";
+        if (array == null)
+            throw new ArgumentNullException(nameof(array));
 
-        throw new InvalidOperationException (msg);
-      }
+        if (index < 0)
+            throw new ArgumentOutOfRangeException(nameof(index), "Less than zero.");
 
-      if (cookie == null)
-        throw new ArgumentNullException ("cookie");
+        if (array.Length - index < _list.Count)
+            throw new ArgumentException(
+                "The number of elements in this collection is greater than the available space of the destination array.");
 
-      var idx = search (cookie);
-
-      if (idx == -1)
-        return false;
-
-      _list.RemoveAt (idx);
-
-      return true;
+        _list.CopyTo(array, index);
     }
-
-    #endregion
-
-    #region Explicit Interface Implementations
 
     /// <summary>
-    /// Gets the enumerator that iterates through the collection.
+    ///     Gets the enumerator used to iterate through the collection.
     /// </summary>
     /// <returns>
-    /// An <see cref="IEnumerator"/> instance that can be used to iterate
-    /// through the collection.
+    ///     An <see cref="IEnumerator" /> instance used to iterate through the collection.
     /// </returns>
-    IEnumerator IEnumerable.GetEnumerator ()
+    public IEnumerator GetEnumerator()
     {
-      return _list.GetEnumerator ();
+        return _list.GetEnumerator();
     }
 
     #endregion
-  }
 }

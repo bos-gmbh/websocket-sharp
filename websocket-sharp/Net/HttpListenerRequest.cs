@@ -1,4 +1,5 @@
 #region License
+
 /*
  * HttpListenerRequest.cs
  *
@@ -8,7 +9,7 @@
  * The MIT License
  *
  * Copyright (c) 2005 Novell, Inc. (http://www.novell.com)
- * Copyright (c) 2012-2024 sta.blockhead
+ * Copyright (c) 2012-2015 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,13 +29,16 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 #region Authors
+
 /*
  * Authors:
  * - Gonzalo Paniagua Javier <gonzalo@novell.com>
  */
+
 #endregion
 
 using System;
@@ -42,809 +46,512 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Globalization;
 using System.IO;
+using System.Net;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
-namespace WebSocketSharp.Net
+#pragma warning disable CS8625
+namespace WebSocketSharp.Net;
+
+/// <summary>
+///     Provides the access to a request to the <see cref="HttpListener" />.
+/// </summary>
+/// <remarks>
+///     The HttpListenerRequest class cannot be inherited.
+/// </remarks>
+public sealed class HttpListenerRequest
 {
-  /// <summary>
-  /// Represents an incoming HTTP request to a <see cref="HttpListener"/>
-  /// instance.
-  /// </summary>
-  /// <remarks>
-  /// This class cannot be inherited.
-  /// </remarks>
-  public sealed class HttpListenerRequest
-  {
-    #region Private Fields
-
-    private static readonly byte[]   _100continue;
-    private string[]                 _acceptTypes;
-    private bool                     _chunked;
-    private HttpConnection           _connection;
-    private Encoding                 _contentEncoding;
-    private long                     _contentLength;
-    private HttpListenerContext      _context;
-    private CookieCollection         _cookies;
-    private static readonly Encoding _defaultEncoding;
-    private WebHeaderCollection      _headers;
-    private string                   _httpMethod;
-    private Stream                   _inputStream;
-    private Version                  _protocolVersion;
-    private NameValueCollection      _queryString;
-    private string                   _rawUrl;
-    private Guid                     _requestTraceIdentifier;
-    private Uri                      _url;
-    private Uri                      _urlReferrer;
-    private bool                     _urlSet;
-    private string                   _userHostName;
-    private string[]                 _userLanguages;
-
-    #endregion
-
     #region Static Constructor
 
-    static HttpListenerRequest ()
+    static HttpListenerRequest()
     {
-      _100continue = Encoding.ASCII.GetBytes ("HTTP/1.1 100 Continue\r\n\r\n");
-      _defaultEncoding = Encoding.UTF8;
+        _100continue = Encoding.ASCII.GetBytes("HTTP/1.1 100 Continue\r\n\r\n");
     }
 
     #endregion
 
     #region Internal Constructors
 
-    internal HttpListenerRequest (HttpListenerContext context)
+    internal HttpListenerRequest(HttpListenerContext context)
     {
-      _context = context;
-
-      _connection = context.Connection;
-      _contentLength = -1;
-      _headers = new WebHeaderCollection ();
-      _requestTraceIdentifier = Guid.NewGuid ();
-    }
-
-    #endregion
-
-    #region Public Properties
-
-    /// <summary>
-    /// Gets the media types that are acceptable for the client.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   An array of <see cref="string"/> that contains the names of
-    ///   the media types specified in the value of the Accept header.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if the header is not present.
-    ///   </para>
-    /// </value>
-    public string[] AcceptTypes {
-      get {
-        var val = _headers["Accept"];
-
-        if (val == null)
-          return null;
-
-        if (_acceptTypes == null) {
-          _acceptTypes = val
-                         .SplitHeaderValue (',')
-                         .TrimEach ()
-                         .ToList ()
-                         .ToArray ();
-        }
-
-        return _acceptTypes;
-      }
-    }
-
-    /// <summary>
-    /// Gets an error code that identifies a problem with the certificate
-    /// provided by the client.
-    /// </summary>
-    /// <value>
-    /// An <see cref="int"/> that represents an error code.
-    /// </value>
-    /// <exception cref="NotSupportedException">
-    /// This property is not supported.
-    /// </exception>
-    public int ClientCertificateError {
-      get {
-        throw new NotSupportedException ();
-      }
-    }
-
-    /// <summary>
-    /// Gets the encoding for the entity body data included in the request.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="Encoding"/> converted from the charset value of the
-    ///   Content-Type header.
-    ///   </para>
-    ///   <para>
-    ///   <see cref="Encoding.UTF8"/> if the charset value is not available.
-    ///   </para>
-    /// </value>
-    public Encoding ContentEncoding {
-      get {
-        if (_contentEncoding == null)
-          _contentEncoding = getContentEncoding ();
-
-        return _contentEncoding;
-      }
-    }
-
-    /// <summary>
-    /// Gets the length in bytes of the entity body data included in the
-    /// request.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="long"/> converted from the value of the Content-Length
-    ///   header.
-    ///   </para>
-    ///   <para>
-    ///   -1 if the header is not present.
-    ///   </para>
-    /// </value>
-    public long ContentLength64 {
-      get {
-        return _contentLength;
-      }
-    }
-
-    /// <summary>
-    /// Gets the media type of the entity body data included in the request.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="string"/> that represents the value of the Content-Type
-    ///   header.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if the header is not present.
-    ///   </para>
-    /// </value>
-    public string ContentType {
-      get {
-        return _headers["Content-Type"];
-      }
-    }
-
-    /// <summary>
-    /// Gets the HTTP cookies included in the request.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="CookieCollection"/> that contains the cookies.
-    ///   </para>
-    ///   <para>
-    ///   An empty collection if not included.
-    ///   </para>
-    /// </value>
-    public CookieCollection Cookies {
-      get {
-        if (_cookies == null)
-          _cookies = _headers.GetCookies (false);
-
-        return _cookies;
-      }
-    }
-
-    /// <summary>
-    /// Gets a value indicating whether the request has the entity body data.
-    /// </summary>
-    /// <value>
-    /// <c>true</c> if the request has the entity body data; otherwise,
-    /// <c>false</c>.
-    /// </value>
-    public bool HasEntityBody {
-      get {
-        return _contentLength > 0 || _chunked;
-      }
-    }
-
-    /// <summary>
-    /// Gets the HTTP headers included in the request.
-    /// </summary>
-    /// <value>
-    /// A <see cref="NameValueCollection"/> that contains the headers.
-    /// </value>
-    public NameValueCollection Headers {
-      get {
-        return _headers;
-      }
-    }
-
-    /// <summary>
-    /// Gets the HTTP method specified by the client.
-    /// </summary>
-    /// <value>
-    /// A <see cref="string"/> that represents the HTTP method specified in
-    /// the request line.
-    /// </value>
-    public string HttpMethod {
-      get {
-        return _httpMethod;
-      }
-    }
-
-    /// <summary>
-    /// Gets a stream that contains the entity body data included in
-    /// the request.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="Stream"/> that contains the entity body data.
-    ///   </para>
-    ///   <para>
-    ///   <see cref="Stream.Null"/> if the entity body data is not available.
-    ///   </para>
-    /// </value>
-    public Stream InputStream {
-      get {
-        if (_inputStream == null) {
-          _inputStream = _contentLength > 0 || _chunked
-                         ? _connection
-                           .GetRequestStream (_contentLength, _chunked)
-                         : Stream.Null;
-        }
-
-        return _inputStream;
-      }
-    }
-
-    /// <summary>
-    /// Gets a value indicating whether the client is authenticated.
-    /// </summary>
-    /// <value>
-    /// <c>true</c> if the client is authenticated; otherwise, <c>false</c>.
-    /// </value>
-    public bool IsAuthenticated {
-      get {
-        return _context.User != null;
-      }
-    }
-
-    /// <summary>
-    /// Gets a value indicating whether the request is sent from the
-    /// local computer.
-    /// </summary>
-    /// <value>
-    /// <c>true</c> if the request is sent from the same computer as
-    /// the server; otherwise, <c>false</c>.
-    /// </value>
-    public bool IsLocal {
-      get {
-        return _connection.IsLocal;
-      }
-    }
-
-    /// <summary>
-    /// Gets a value indicating whether a secure connection is used to send
-    /// the request.
-    /// </summary>
-    /// <value>
-    /// <c>true</c> if the connection is secure; otherwise, <c>false</c>.
-    /// </value>
-    public bool IsSecureConnection {
-      get {
-        return _connection.IsSecure;
-      }
-    }
-
-    /// <summary>
-    /// Gets a value indicating whether the request is a WebSocket handshake
-    /// request.
-    /// </summary>
-    /// <value>
-    /// <c>true</c> if the request is a WebSocket handshake request; otherwise,
-    /// <c>false</c>.
-    /// </value>
-    public bool IsWebSocketRequest {
-      get {
-        return _httpMethod == "GET" && _headers.Upgrades ("websocket");
-      }
-    }
-
-    /// <summary>
-    /// Gets a value indicating whether a persistent connection is requested.
-    /// </summary>
-    /// <value>
-    /// <c>true</c> if the request specifies that the connection is kept open;
-    /// otherwise, <c>false</c>.
-    /// </value>
-    public bool KeepAlive {
-      get {
-        return _headers.KeepsAlive (_protocolVersion);
-      }
-    }
-
-    /// <summary>
-    /// Gets the endpoint to which the request is sent.
-    /// </summary>
-    /// <value>
-    /// A <see cref="System.Net.IPEndPoint"/> that represents the server
-    /// IP address and port number.
-    /// </value>
-    public System.Net.IPEndPoint LocalEndPoint {
-      get {
-        return _connection.LocalEndPoint;
-      }
-    }
-
-    /// <summary>
-    /// Gets the HTTP version specified by the client.
-    /// </summary>
-    /// <value>
-    /// A <see cref="Version"/> that represents the HTTP version specified in
-    /// the request line.
-    /// </value>
-    public Version ProtocolVersion {
-      get {
-        return _protocolVersion;
-      }
-    }
-
-    /// <summary>
-    /// Gets the query string included in the request.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="NameValueCollection"/> that contains the query
-    ///   parameters.
-    ///   </para>
-    ///   <para>
-    ///   Each query parameter is decoded in UTF-8.
-    ///   </para>
-    ///   <para>
-    ///   An empty collection if not included.
-    ///   </para>
-    /// </value>
-    public NameValueCollection QueryString {
-      get {
-        if (_queryString == null) {
-          var url = Url;
-          var query = url != null ? url.Query : null;
-
-          _queryString = QueryStringCollection.Parse (query, _defaultEncoding);
-        }
-
-        return _queryString;
-      }
-    }
-
-    /// <summary>
-    /// Gets the raw URL specified by the client.
-    /// </summary>
-    /// <value>
-    /// A <see cref="string"/> that represents the request target specified in
-    /// the request line.
-    /// </value>
-    public string RawUrl {
-      get {
-        return _rawUrl;
-      }
-    }
-
-    /// <summary>
-    /// Gets the endpoint from which the request is sent.
-    /// </summary>
-    /// <value>
-    /// A <see cref="System.Net.IPEndPoint"/> that represents the client
-    /// IP address and port number.
-    /// </value>
-    public System.Net.IPEndPoint RemoteEndPoint {
-      get {
-        return _connection.RemoteEndPoint;
-      }
-    }
-
-    /// <summary>
-    /// Gets the trace identifier of the request.
-    /// </summary>
-    /// <value>
-    /// A <see cref="Guid"/> that represents the trace identifier.
-    /// </value>
-    public Guid RequestTraceIdentifier {
-      get {
-        return _requestTraceIdentifier;
-      }
-    }
-
-    /// <summary>
-    /// Gets the URL requested by the client.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="Uri"/> that represents the URL parsed from the request.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if the URL cannot be parsed.
-    ///   </para>
-    /// </value>
-    public Uri Url {
-      get {
-        if (!_urlSet) {
-          _url = HttpUtility
-                 .CreateRequestUrl (
-                   _rawUrl,
-                   _userHostName,
-                   IsWebSocketRequest,
-                   IsSecureConnection
-                 );
-
-          _urlSet = true;
-        }
-
-        return _url;
-      }
-    }
-
-    /// <summary>
-    /// Gets the URI of the resource from which the requested URL was obtained.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="Uri"/> that represents the value of the Referer header.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if the header value is not available.
-    ///   </para>
-    /// </value>
-    public Uri UrlReferrer {
-      get {
-        var val = _headers["Referer"];
-
-        if (val == null)
-          return null;
-
-        if (_urlReferrer == null)
-          _urlReferrer = val.ToUri ();
-
-        return _urlReferrer;
-      }
-    }
-
-    /// <summary>
-    /// Gets the user agent from which the request is originated.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="string"/> that represents the value of the User-Agent
-    ///   header.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if the header is not present.
-    ///   </para>
-    /// </value>
-    public string UserAgent {
-      get {
-        return _headers["User-Agent"];
-      }
-    }
-
-    /// <summary>
-    /// Gets the IP address and port number to which the request is sent.
-    /// </summary>
-    /// <value>
-    /// A <see cref="string"/> that represents the server IP address and
-    /// port number.
-    /// </value>
-    public string UserHostAddress {
-      get {
-        return _connection.LocalEndPoint.ToString ();
-      }
-    }
-
-    /// <summary>
-    /// Gets the server host name requested by the client.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="string"/> that represents the value of the Host header.
-    ///   </para>
-    ///   <para>
-    ///   It includes the port number if provided.
-    ///   </para>
-    /// </value>
-    public string UserHostName {
-      get {
-        return _userHostName;
-      }
-    }
-
-    /// <summary>
-    /// Gets the natural languages that are acceptable for the client.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   An array of <see cref="string"/> that contains the names of the
-    ///   natural languages specified in the value of the Accept-Language
-    ///   header.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if the header is not present.
-    ///   </para>
-    /// </value>
-    public string[] UserLanguages {
-      get {
-        var val = _headers["Accept-Language"];
-
-        if (val == null)
-          return null;
-
-        if (_userLanguages == null)
-          _userLanguages = val.Split (',').TrimEach ().ToList ().ToArray ();
-
-        return _userLanguages;
-      }
+        _context = context;
+        ContentLength64 = -1;
+        _headers = new WebHeaderCollection();
+        RequestTraceIdentifier = Guid.NewGuid();
     }
 
     #endregion
 
     #region Private Methods
 
-    private Encoding getContentEncoding ()
+    private static bool tryCreateVersion(string version, out Version result)
     {
-      var val = _headers["Content-Type"];
-
-      if (val == null)
-        return _defaultEncoding;
-
-      Encoding ret;
-
-      return HttpUtility.TryGetEncoding (val, out ret)
-             ? ret
-             : _defaultEncoding;
+        try
+        {
+            result = new Version(version);
+            return true;
+        }
+        catch
+        {
+            result = null;
+            return false;
+        }
     }
+
+    #endregion
+
+    #region Private Fields
+
+    private static readonly byte[] _100continue;
+    private bool _chunked;
+    private Encoding _contentEncoding;
+    private bool _contentLengthSet;
+    private readonly HttpListenerContext _context;
+    private CookieCollection _cookies;
+    private readonly WebHeaderCollection _headers;
+    private Stream _inputStream;
+    private bool _keepAlive;
+    private bool _keepAliveSet;
+    private NameValueCollection _queryString;
+    private string _uri;
+    private Version _version;
+    private bool _websocketRequest;
+    private bool _websocketRequestSet;
+
+    #endregion
+
+    #region Public Properties
+
+    /// <summary>
+    ///     Gets the media types which are acceptable for the response.
+    /// </summary>
+    /// <value>
+    ///     An array of <see cref="string" /> that contains the media type names in
+    ///     the Accept request-header, or <see langword="null" /> if the request didn't include
+    ///     the Accept header.
+    /// </value>
+    public string[] AcceptTypes { get; private set; }
+
+    /// <summary>
+    ///     Gets an error code that identifies a problem with the client's certificate.
+    /// </summary>
+    /// <value>
+    ///     Always returns <c>0</c>.
+    /// </value>
+    public int ClientCertificateError => 0;
+
+    /// <summary>
+    ///     Gets the encoding for the entity body data included in the request.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="Encoding" /> that represents the encoding for the entity body data,
+    ///     or <see cref="Encoding.Default" /> if the request didn't include the information about
+    ///     the encoding.
+    /// </value>
+    public Encoding ContentEncoding => _contentEncoding ?? (_contentEncoding = Encoding.Default);
+
+    /// <summary>
+    ///     Gets the number of bytes in the entity body data included in the request.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="long" /> that represents the value of the Content-Length entity-header,
+    ///     or <c>-1</c> if the value isn't known.
+    /// </value>
+    public long ContentLength64 { get; private set; }
+
+    /// <summary>
+    ///     Gets the media type of the entity body included in the request.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="string" /> that represents the value of the Content-Type entity-header.
+    /// </value>
+    public string ContentType => _headers["Content-Type"];
+
+    /// <summary>
+    ///     Gets the cookies included in the request.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="CookieCollection" /> that contains the cookies included in the request.
+    /// </value>
+    public CookieCollection Cookies => _cookies ?? (_cookies = _headers.GetCookies(false));
+
+    /// <summary>
+    ///     Gets a value indicating whether the request has the entity body.
+    /// </summary>
+    /// <value>
+    ///     <c>true</c> if the request has the entity body; otherwise, <c>false</c>.
+    /// </value>
+    public bool HasEntityBody => ContentLength64 > 0 || _chunked;
+
+    /// <summary>
+    ///     Gets the HTTP headers used in the request.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="NameValueCollection" /> that contains the HTTP headers used in the request.
+    /// </value>
+    public NameValueCollection Headers => _headers;
+
+    /// <summary>
+    ///     Gets the HTTP method used in the request.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="string" /> that represents the HTTP method used in the request.
+    /// </value>
+    public string HttpMethod { get; private set; }
+
+    /// <summary>
+    ///     Gets a <see cref="Stream" /> that contains the entity body data included in the request.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="Stream" /> that contains the entity body data included in the request.
+    /// </value>
+    public Stream InputStream =>
+        _inputStream ??
+        (_inputStream = HasEntityBody
+            ? _context.Connection.GetRequestStream(ContentLength64, _chunked)
+            : Stream.Null);
+
+    /// <summary>
+    ///     Gets a value indicating whether the client that sent the request is authenticated.
+    /// </summary>
+    /// <value>
+    ///     <c>true</c> if the client is authenticated; otherwise, <c>false</c>.
+    /// </value>
+    public bool IsAuthenticated => _context.User != null;
+
+    /// <summary>
+    ///     Gets a value indicating whether the request is sent from the local computer.
+    /// </summary>
+    /// <value>
+    ///     <c>true</c> if the request is sent from the local computer; otherwise, <c>false</c>.
+    /// </value>
+    public bool IsLocal => RemoteEndPoint.Address.IsLocal();
+
+    /// <summary>
+    ///     Gets a value indicating whether the HTTP connection is secured using the SSL protocol.
+    /// </summary>
+    /// <value>
+    ///     <c>true</c> if the HTTP connection is secured; otherwise, <c>false</c>.
+    /// </value>
+    public bool IsSecureConnection => _context.Connection.IsSecure;
+
+    /// <summary>
+    ///     Gets a value indicating whether the request is a WebSocket connection request.
+    /// </summary>
+    /// <value>
+    ///     <c>true</c> if the request is a WebSocket connection request; otherwise, <c>false</c>.
+    /// </value>
+    public bool IsWebSocketRequest
+    {
+        get
+        {
+            if (!_websocketRequestSet)
+            {
+                _websocketRequest = HttpMethod == "GET" &&
+                                    _version > HttpVersion.Version10 &&
+                                    _headers.Contains("Upgrade", "websocket") &&
+                                    _headers.Contains("Connection", "Upgrade");
+
+                _websocketRequestSet = true;
+            }
+
+            return _websocketRequest;
+        }
+    }
+
+    /// <summary>
+    ///     Gets a value indicating whether the client requests a persistent connection.
+    /// </summary>
+    /// <value>
+    ///     <c>true</c> if the client requests a persistent connection; otherwise, <c>false</c>.
+    /// </value>
+    public bool KeepAlive
+    {
+        get
+        {
+            if (!_keepAliveSet)
+            {
+                string keepAlive;
+                _keepAlive = _version > HttpVersion.Version10 ||
+                             _headers.Contains("Connection", "keep-alive") ||
+                             ((keepAlive = _headers["Keep-Alive"]) != null && keepAlive != "closed");
+
+                _keepAliveSet = true;
+            }
+
+            return _keepAlive;
+        }
+    }
+
+    /// <summary>
+    ///     Gets the server endpoint as an IP address and a port number.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="System.Net.IPEndPoint" /> that represents the server endpoint.
+    /// </value>
+    public IPEndPoint LocalEndPoint => _context.Connection.LocalEndPoint;
+
+    /// <summary>
+    ///     Gets the HTTP version used in the request.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="Version" /> that represents the HTTP version used in the request.
+    /// </value>
+    public Version ProtocolVersion => _version;
+
+    /// <summary>
+    ///     Gets the query string included in the request.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="NameValueCollection" /> that contains the query string parameters.
+    /// </value>
+    public NameValueCollection QueryString =>
+        _queryString ??
+        (_queryString = HttpUtility.InternalParseQueryString(Url.Query, Encoding.UTF8));
+
+    /// <summary>
+    ///     Gets the raw URL (without the scheme, host, and port) requested by the client.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="string" /> that represents the raw URL requested by the client.
+    /// </value>
+    public string RawUrl => Url.PathAndQuery;
+
+    /// <summary>
+    ///     Gets the client endpoint as an IP address and a port number.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="System.Net.IPEndPoint" /> that represents the client endpoint.
+    /// </value>
+    public IPEndPoint RemoteEndPoint => _context.Connection.RemoteEndPoint;
+
+    /// <summary>
+    ///     Gets the request identifier of a incoming HTTP request.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="Guid" /> that represents the identifier of a request.
+    /// </value>
+    public Guid RequestTraceIdentifier { get; }
+
+    /// <summary>
+    ///     Gets the URL requested by the client.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="Uri" /> that represents the URL requested by the client.
+    /// </value>
+    public Uri Url { get; private set; }
+
+    /// <summary>
+    ///     Gets the URL of the resource from which the requested URL was obtained.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="Uri" /> that represents the value of the Referer request-header,
+    ///     or <see langword="null" /> if the request didn't include an Referer header.
+    /// </value>
+    public Uri UrlReferrer { get; private set; }
+
+    /// <summary>
+    ///     Gets the information about the user agent originating the request.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="string" /> that represents the value of the User-Agent request-header.
+    /// </value>
+    public string UserAgent => _headers["User-Agent"];
+
+    /// <summary>
+    ///     Gets the server endpoint as an IP address and a port number.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="string" /> that represents the server endpoint.
+    /// </value>
+    public string UserHostAddress => LocalEndPoint.ToString();
+
+    /// <summary>
+    ///     Gets the internet host name and port number (if present) specified by the client.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="string" /> that represents the value of the Host request-header.
+    /// </value>
+    public string UserHostName => _headers["Host"];
+
+    /// <summary>
+    ///     Gets the natural languages which are preferred for the response.
+    /// </summary>
+    /// <value>
+    ///     An array of <see cref="string" /> that contains the natural language names in
+    ///     the Accept-Language request-header, or <see langword="null" /> if the request
+    ///     didn't include an Accept-Language header.
+    /// </value>
+    public string[] UserLanguages { get; private set; }
 
     #endregion
 
     #region Internal Methods
 
-    internal void AddHeader (string headerField)
+    internal void AddHeader(string header)
     {
-      var start = headerField[0];
-
-      if (start == ' ' || start == '\t') {
-        _context.ErrorMessage = "Invalid header field";
-
-        return;
-      }
-
-      var colon = headerField.IndexOf (':');
-
-      if (colon < 1) {
-        _context.ErrorMessage = "Invalid header field";
-
-        return;
-      }
-
-      var name = headerField.Substring (0, colon).Trim ();
-
-      if (name.Length == 0 || !name.IsToken ()) {
-        _context.ErrorMessage = "Invalid header name";
-
-        return;
-      }
-
-      var val = colon < headerField.Length - 1
-                ? headerField.Substring (colon + 1).Trim ()
-                : String.Empty;
-
-      _headers.InternalSet (name, val, false);
-
-      var lower = name.ToLower (CultureInfo.InvariantCulture);
-
-      if (lower == "host") {
-        if (_userHostName != null) {
-          _context.ErrorMessage = "Invalid Host header";
-
-          return;
+        var colon = header.IndexOf(':');
+        if (colon == -1)
+        {
+            _context.ErrorMessage = "Invalid header";
+            return;
         }
 
-        if (val.Length == 0) {
-          _context.ErrorMessage = "Invalid Host header";
+        var name = header.Substring(0, colon).Trim();
+        var val = header.Substring(colon + 1).Trim();
+        _headers.InternalSet(name, val, false);
 
-          return;
+        var lower = name.ToLower(CultureInfo.InvariantCulture);
+        if (lower == "accept")
+        {
+            AcceptTypes = new List<string>(val.SplitHeaderValue(',')).ToArray();
+            return;
         }
 
-        _userHostName = val;
-
-        return;
-      }
-
-      if (lower == "content-length") {
-        if (_contentLength > -1) {
-          _context.ErrorMessage = "Invalid Content-Length header";
-
-          return;
+        if (lower == "accept-language")
+        {
+            UserLanguages = val.Split(',');
+            return;
         }
 
-        long len;
+        if (lower == "content-length")
+        {
+            long len;
+            if (long.TryParse(val, out len) && len >= 0)
+            {
+                ContentLength64 = len;
+                _contentLengthSet = true;
+            }
+            else
+            {
+                _context.ErrorMessage = "Invalid Content-Length header";
+            }
 
-        if (!Int64.TryParse (val, out len)) {
-          _context.ErrorMessage = "Invalid Content-Length header";
-
-          return;
+            return;
         }
 
-        if (len < 0) {
-          _context.ErrorMessage = "Invalid Content-Length header";
+        if (lower == "content-type")
+        {
+            try
+            {
+                _contentEncoding = HttpUtility.GetEncoding(val);
+            }
+            catch
+            {
+                _context.ErrorMessage = "Invalid Content-Type header";
+            }
 
-          return;
+            return;
         }
 
-        _contentLength = len;
-
-        return;
-      }
+        if (lower == "referer")
+            UrlReferrer = val.ToUri();
     }
 
-    internal void FinishInitialization ()
+    internal void FinishInitialization()
     {
-      if (_userHostName == null) {
-        _context.ErrorMessage = "Host header required";
-
-        return;
-      }
-
-      var transferEnc = _headers["Transfer-Encoding"];
-
-      if (transferEnc != null) {
-        var compType = StringComparison.OrdinalIgnoreCase;
-
-        if (!transferEnc.Equals ("chunked", compType)) {
-          _context.ErrorStatusCode = 501;
-          _context.ErrorMessage = "Invalid Transfer-Encoding header";
-
-          return;
+        var host = _headers["Host"];
+        var nohost = host == null || host.Length == 0;
+        if (_version > HttpVersion.Version10 && nohost)
+        {
+            _context.ErrorMessage = "Invalid Host header";
+            return;
         }
 
-        _chunked = true;
-      }
+        if (nohost)
+            host = UserHostAddress;
 
-      if (_httpMethod == "POST" || _httpMethod == "PUT") {
-        if (_contentLength == -1 && !_chunked) {
-          _context.ErrorStatusCode = 411;
-          _context.ErrorMessage = "Content-Length header required";
-
-          return;
+        Url = HttpUtility.CreateRequestUrl(_uri, host, IsWebSocketRequest, IsSecureConnection);
+        if (Url == null)
+        {
+            _context.ErrorMessage = "Invalid request url";
+            return;
         }
 
-        if (_contentLength == 0 && !_chunked) {
-          _context.ErrorStatusCode = 411;
-          _context.ErrorMessage = "Invalid Content-Length header";
+        var enc = Headers["Transfer-Encoding"];
+        if (_version > HttpVersion.Version10 && enc != null && enc.Length > 0)
+        {
+            _chunked = enc.ToLower() == "chunked";
+            if (!_chunked)
+            {
+                _context.ErrorMessage = string.Empty;
+                _context.ErrorStatus = 501;
 
-          return;
-        }
-      }
-
-      var expect = _headers["Expect"];
-
-      if (expect != null) {
-        var compType = StringComparison.OrdinalIgnoreCase;
-
-        if (!expect.Equals ("100-continue", compType)) {
-          _context.ErrorStatusCode = 417;
-          _context.ErrorMessage = "Invalid Expect header";
-
-          return;
+                return;
+            }
         }
 
-        var output = _connection.GetResponseStream ();
+        if (!_chunked && !_contentLengthSet)
+        {
+            var method = HttpMethod.ToLower();
+            if (method == "post" || method == "put")
+            {
+                _context.ErrorMessage = string.Empty;
+                _context.ErrorStatus = 411;
 
-        output.InternalWrite (_100continue, 0, _100continue.Length);
-      }
+                return;
+            }
+        }
+
+        var expect = Headers["Expect"];
+        if (expect != null && expect.Length > 0 && expect.ToLower() == "100-continue")
+        {
+            var output = _context.Connection.GetResponseStream();
+            output.InternalWrite(_100continue, 0, _100continue.Length);
+        }
     }
 
-    internal bool FlushInput ()
+    // Returns true is the stream could be reused.
+    internal bool FlushInput()
     {
-      var input = InputStream;
-
-      if (input == Stream.Null)
-        return true;
-
-      var len = 2048;
-
-      if (_contentLength > 0 && _contentLength < len)
-        len = (int) _contentLength;
-
-      var buff = new byte[len];
-
-      while (true) {
-        try {
-          var ares = input.BeginRead (buff, 0, len, null, null);
-
-          if (!ares.IsCompleted) {
-            var timeout = 100;
-
-            if (!ares.AsyncWaitHandle.WaitOne (timeout))
-              return false;
-          }
-
-          if (input.EndRead (ares) <= 0)
+        if (!HasEntityBody)
             return true;
-        }
-        catch {
-          return false;
-        }
-      }
+
+        var len = 2048;
+        if (ContentLength64 > 0)
+            len = (int)Math.Min(ContentLength64, len);
+
+        var buff = new byte[len];
+        while (true)
+            try
+            {
+                var ares = InputStream.BeginRead(buff, 0, len, null, null);
+                if (!ares.IsCompleted && !ares.AsyncWaitHandle.WaitOne(100))
+                    return false;
+
+                if (InputStream.EndRead(ares) <= 0)
+                    return true;
+            }
+            catch
+            {
+                return false;
+            }
     }
 
-    internal bool IsUpgradeRequest (string protocol)
+    internal void SetRequestLine(string requestLine)
     {
-      return _headers.Upgrades (protocol);
-    }
+        var parts = requestLine.Split(new[] { ' ' }, 3);
+        if (parts.Length != 3)
+        {
+            _context.ErrorMessage = "Invalid request line (parts)";
+            return;
+        }
 
-    internal void SetRequestLine (string requestLine)
-    {
-      var parts = requestLine.Split (new[] { ' ' }, 3);
+        HttpMethod = parts[0];
+        if (!HttpMethod.IsToken())
+        {
+            _context.ErrorMessage = "Invalid request line (method)";
+            return;
+        }
 
-      if (parts.Length < 3) {
-        _context.ErrorMessage = "Invalid request line (parts)";
+        _uri = parts[1];
 
-        return;
-      }
-
-      var method = parts[0];
-
-      if (method.Length == 0) {
-        _context.ErrorMessage = "Invalid request line (method)";
-
-        return;
-      }
-
-      if (!method.IsHttpMethod ()) {
-        _context.ErrorStatusCode = 501;
-        _context.ErrorMessage = "Invalid request line (method)";
-
-        return;
-      }
-
-      var target = parts[1];
-
-      if (target.Length == 0) {
-        _context.ErrorMessage = "Invalid request line (target)";
-
-        return;
-      }
-
-      var rawVer = parts[2];
-
-      if (rawVer.Length != 8) {
-        _context.ErrorMessage = "Invalid request line (version)";
-
-        return;
-      }
-
-      if (!rawVer.StartsWith ("HTTP/", StringComparison.Ordinal)) {
-        _context.ErrorMessage = "Invalid request line (version)";
-
-        return;
-      }
-
-      Version ver;
-
-      if (!rawVer.Substring (5).TryCreateVersion (out ver)) {
-        _context.ErrorMessage = "Invalid request line (version)";
-
-        return;
-      }
-
-      if (ver != HttpVersion.Version11) {
-        _context.ErrorStatusCode = 505;
-        _context.ErrorMessage = "Invalid request line (version)";
-
-        return;
-      }
-
-      _httpMethod = method;
-      _rawUrl = target;
-      _protocolVersion = ver;
+        var ver = parts[2];
+        if (ver.Length != 8 ||
+            !ver.StartsWith("HTTP/") ||
+            !tryCreateVersion(ver.Substring(5), out _version) ||
+            _version.Major < 1)
+            _context.ErrorMessage = "Invalid request line (version)";
     }
 
     #endregion
@@ -852,92 +559,83 @@ namespace WebSocketSharp.Net
     #region Public Methods
 
     /// <summary>
-    /// Begins getting the certificate provided by the client asynchronously.
+    ///     Begins getting the client's X.509 v.3 certificate asynchronously.
     /// </summary>
+    /// <remarks>
+    ///     This asynchronous operation must be completed by calling
+    ///     the <see cref="EndGetClientCertificate" /> method. Typically,
+    ///     that method is invoked by the <paramref name="requestCallback" /> delegate.
+    /// </remarks>
     /// <returns>
-    /// An <see cref="IAsyncResult"/> instance that represents the status of
-    /// the asynchronous operation.
+    ///     An <see cref="IAsyncResult" /> that contains the status of the asynchronous operation.
     /// </returns>
     /// <param name="requestCallback">
-    ///   <para>
-    ///   An <see cref="AsyncCallback"/> delegate.
-    ///   </para>
-    ///   <para>
-    ///   It specifies the delegate called when the asynchronous operation is
-    ///   complete.
-    ///   </para>
+    ///     An <see cref="AsyncCallback" /> delegate that references the method(s) called when
+    ///     the asynchronous operation completes.
     /// </param>
     /// <param name="state">
-    /// An <see cref="object"/> that specifies a user defined object to pass to
-    /// <paramref name="requestCallback"/>.
+    ///     An <see cref="object" /> that contains a user defined object to pass to
+    ///     the <paramref name="requestCallback" /> delegate.
     /// </param>
     /// <exception cref="NotSupportedException">
-    /// This method is not supported.
+    ///     This method isn't implemented.
     /// </exception>
-    public IAsyncResult BeginGetClientCertificate (
-      AsyncCallback requestCallback,
-      object state
-    )
+    public IAsyncResult BeginGetClientCertificate(AsyncCallback requestCallback, object state)
     {
-      throw new NotSupportedException ();
+        throw new NotSupportedException();
     }
 
     /// <summary>
-    /// Ends an asynchronous operation to get the certificate provided by
-    /// the client.
+    ///     Ends an asynchronous operation to get the client's X.509 v.3 certificate.
     /// </summary>
+    /// <remarks>
+    ///     This method completes an asynchronous operation started by calling
+    ///     the <see cref="BeginGetClientCertificate" /> method.
+    /// </remarks>
     /// <returns>
-    /// A <see cref="X509Certificate2"/> that represents an X.509 certificate
-    /// provided by the client.
+    ///     A <see cref="X509Certificate2" /> that contains the client's X.509 v.3 certificate.
     /// </returns>
     /// <param name="asyncResult">
-    /// An <see cref="IAsyncResult"/> instance obtained by calling
-    /// the <see cref="BeginGetClientCertificate"/> method.
+    ///     An <see cref="IAsyncResult" /> obtained by calling
+    ///     the <see cref="BeginGetClientCertificate" /> method.
     /// </param>
     /// <exception cref="NotSupportedException">
-    /// This method is not supported.
+    ///     This method isn't implemented.
     /// </exception>
-    public X509Certificate2 EndGetClientCertificate (IAsyncResult asyncResult)
+    public X509Certificate2 EndGetClientCertificate(IAsyncResult asyncResult)
     {
-      throw new NotSupportedException ();
+        throw new NotSupportedException();
     }
 
     /// <summary>
-    /// Gets the certificate provided by the client.
+    ///     Gets the client's X.509 v.3 certificate.
     /// </summary>
     /// <returns>
-    /// A <see cref="X509Certificate2"/> that represents an X.509 certificate
-    /// provided by the client.
+    ///     A <see cref="X509Certificate2" /> that contains the client's X.509 v.3 certificate.
     /// </returns>
     /// <exception cref="NotSupportedException">
-    /// This method is not supported.
+    ///     This method isn't implemented.
     /// </exception>
-    public X509Certificate2 GetClientCertificate ()
+    public X509Certificate2 GetClientCertificate()
     {
-      throw new NotSupportedException ();
+        throw new NotSupportedException();
     }
 
     /// <summary>
-    /// Returns a string that represents the current instance.
+    ///     Returns a <see cref="string" /> that represents
+    ///     the current <see cref="HttpListenerRequest" />.
     /// </summary>
     /// <returns>
-    /// A <see cref="string"/> that contains the request line and headers
-    /// included in the request.
+    ///     A <see cref="string" /> that represents the current <see cref="HttpListenerRequest" />.
     /// </returns>
-    public override string ToString ()
+    public override string ToString()
     {
-      var buff = new StringBuilder (64);
+        var buff = new StringBuilder(64);
+        buff.AppendFormat("{0} {1} HTTP/{2}\r\n", HttpMethod, _uri, _version);
+        buff.Append(_headers);
 
-      var fmt = "{0} {1} HTTP/{2}\r\n";
-      var headers = _headers.ToString ();
-
-      buff
-      .AppendFormat (fmt, _httpMethod, _rawUrl, _protocolVersion)
-      .Append (headers);
-
-      return buff.ToString ();
+        return buff.ToString();
     }
 
     #endregion
-  }
 }

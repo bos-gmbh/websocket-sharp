@@ -1,4 +1,5 @@
 #region License
+
 /*
  * HttpListenerResponse.cs
  *
@@ -8,7 +9,7 @@
  * The MIT License
  *
  * Copyright (c) 2005 Novell, Inc. (http://www.novell.com)
- * Copyright (c) 2012-2024 sta.blockhead
+ * Copyright (c) 2012-2015 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,126 +29,103 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 #region Authors
+
 /*
  * Authors:
  * - Gonzalo Paniagua Javier <gonzalo@novell.com>
  */
+
 #endregion
 
 #region Contributors
+
 /*
  * Contributors:
  * - Nicholas Devenish
  */
+
 #endregion
 
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
+using System.Net;
 using System.Text;
 
-namespace WebSocketSharp.Net
+#pragma warning disable CS8625
+namespace WebSocketSharp.Net;
+
+/// <summary>
+///     Provides the access to a response to a request received by the <see cref="HttpListener" />.
+/// </summary>
+/// <remarks>
+///     The HttpListenerResponse class cannot be inherited.
+/// </remarks>
+public sealed class HttpListenerResponse : IDisposable
 {
-  /// <summary>
-  /// Represents an HTTP response to an HTTP request received by
-  /// a <see cref="HttpListener"/> instance.
-  /// </summary>
-  /// <remarks>
-  /// This class cannot be inherited.
-  /// </remarks>
-  public sealed class HttpListenerResponse : IDisposable
-  {
-    #region Private Fields
-
-    private bool                   _closeConnection;
-    private Encoding               _contentEncoding;
-    private long                   _contentLength;
-    private string                 _contentType;
-    private HttpListenerContext    _context;
-    private CookieCollection       _cookies;
-    private static readonly string _defaultProductName;
-    private bool                   _disposed;
-    private WebHeaderCollection    _headers;
-    private bool                   _headersSent;
-    private bool                   _keepAlive;
-    private ResponseStream         _outputStream;
-    private Uri                    _redirectLocation;
-    private bool                   _sendChunked;
-    private int                    _statusCode;
-    private string                 _statusDescription;
-    private Version                _version;
-
-    #endregion
-
-    #region Static Constructor
-
-    static HttpListenerResponse ()
-    {
-      _defaultProductName = "websocket-sharp/1.0";
-    }
-
-    #endregion
-
     #region Internal Constructors
 
-    internal HttpListenerResponse (HttpListenerContext context)
+    internal HttpListenerResponse(HttpListenerContext context)
     {
-      _context = context;
-
-      _keepAlive = true;
-      _statusCode = 200;
-      _statusDescription = "OK";
-      _version = HttpVersion.Version11;
+        _context = context;
+        _keepAlive = true;
+        _statusCode = 200;
+        _statusDescription = "OK";
+        _version = HttpVersion.Version11;
     }
 
     #endregion
 
-    #region Internal Properties
+    #region Explicit Interface Implementations
 
-    internal bool CloseConnection {
-      get {
-        return _closeConnection;
-      }
+    /// <summary>
+    ///     Releases all resources used by the <see cref="HttpListenerResponse" />.
+    /// </summary>
+    void IDisposable.Dispose()
+    {
+        if (_disposed)
+            return;
 
-      set {
-        _closeConnection = value;
-      }
+        close(true); // Same as the Abort method.
     }
 
-    internal WebHeaderCollection FullHeaders {
-      get {
-        var headers = new WebHeaderCollection (HttpHeaderType.Response, true);
+    #endregion
 
+    #region Internal Methods
+
+    internal WebHeaderCollection WriteHeadersTo(MemoryStream destination)
+    {
+        var headers = new WebHeaderCollection(HttpHeaderType.Response, true);
         if (_headers != null)
-          headers.Add (_headers);
+            headers.Add(_headers);
 
-        if (_contentType != null) {
-          var val = createContentTypeHeaderText (_contentType, _contentEncoding);
+        if (_contentType != null)
+        {
+            var type = _contentType.IndexOf("charset=", StringComparison.Ordinal) == -1 &&
+                       _contentEncoding != null
+                ? string.Format("{0}; charset={1}", _contentType, _contentEncoding.WebName)
+                : _contentType;
 
-          headers.InternalSet ("Content-Type", val, true);
+            headers.InternalSet("Content-Type", type, true);
         }
 
         if (headers["Server"] == null)
-          headers.InternalSet ("Server", _defaultProductName, true);
+            headers.InternalSet("Server", "websocket-sharp/1.0", true);
 
-        if (headers["Date"] == null) {
-          var val = DateTime.UtcNow.ToString ("r", CultureInfo.InvariantCulture);
+        var prov = CultureInfo.InvariantCulture;
+        if (headers["Date"] == null)
+            headers.InternalSet("Date", DateTime.UtcNow.ToString("r", prov), true);
 
-          headers.InternalSet ("Date", val, true);
-        }
-
-        if (_sendChunked) {
-          headers.InternalSet ("Transfer-Encoding", "chunked", true);
-        }
-        else {
-          var val = _contentLength.ToString (CultureInfo.InvariantCulture);
-
-          headers.InternalSet ("Content-Length", val, true);
-        }
+        if (!_sendChunked)
+            headers.InternalSet("Content-Length", _contentLength.ToString(prov), true);
+        else
+            headers.InternalSet("Transfer-Encoding", "chunked", true);
 
         /*
          * Apache forces closing the connection for these status codes:
@@ -159,697 +137,454 @@ namespace WebSocketSharp.Net
          * - 500 Internal Server Error
          * - 503 Service Unavailable
          */
+        var closeConn = !_context.Request.KeepAlive ||
+                        !_keepAlive ||
+                        _statusCode == 400 ||
+                        _statusCode == 408 ||
+                        _statusCode == 411 ||
+                        _statusCode == 413 ||
+                        _statusCode == 414 ||
+                        _statusCode == 500 ||
+                        _statusCode == 503;
 
         var reuses = _context.Connection.Reuses;
-        var closeConn = !_context.Request.KeepAlive
-                        || !_keepAlive
-                        || reuses >= 100
-                        || _statusCode == 400
-                        || _statusCode == 408
-                        || _statusCode == 411
-                        || _statusCode == 413
-                        || _statusCode == 414
-                        || _statusCode == 500
-                        || _statusCode == 503;
-
-        if (closeConn) {
-          headers.InternalSet ("Connection", "close", true);
+        if (closeConn || reuses >= 100)
+        {
+            headers.InternalSet("Connection", "close", true);
         }
-        else {
-          var fmt = "timeout=15,max={0}";
-          var max = 100 - reuses;
-          var val = String.Format (fmt, max);
+        else
+        {
+            headers.InternalSet(
+                "Keep-Alive", string.Format("timeout=15,max={0}", 100 - reuses), true);
 
-          headers.InternalSet ("Keep-Alive", val, true);
+            if (_context.Request.ProtocolVersion < HttpVersion.Version11)
+                headers.InternalSet("Connection", "keep-alive", true);
         }
 
-        if (_redirectLocation != null)
-          headers.InternalSet ("Location", _redirectLocation.AbsoluteUri, true);
+        if (_location != null)
+            headers.InternalSet("Location", _location, true);
 
-        if (_cookies != null) {
-          foreach (var cookie in _cookies) {
-            var val = cookie.ToResponseString ();
+        if (_cookies != null)
+            foreach (Cookie cookie in _cookies)
+                headers.InternalSet("Set-Cookie", cookie.ToResponseString(), true);
 
-            headers.InternalSet ("Set-Cookie", val, true);
-          }
-        }
+        var enc = _contentEncoding ?? Encoding.Default;
+        var writer = new StreamWriter(destination, enc, 256);
+        writer.Write("HTTP/{0} {1} {2}\r\n", _version, _statusCode, _statusDescription);
+        writer.Write(headers.ToStringMultiValue(true));
+        writer.Flush();
+
+        // Assumes that the destination was at position 0.
+        destination.Position = enc.GetPreamble().Length;
 
         return headers;
-      }
     }
 
-    internal bool HeadersSent {
-      get {
-        return _headersSent;
-      }
+    #endregion
 
-      set {
-        _headersSent = value;
-      }
-    }
+    #region Private Fields
 
-    internal string ObjectName {
-      get {
-        return GetType ().ToString ();
-      }
-    }
+    private Encoding _contentEncoding;
+    private long _contentLength;
+    private string _contentType;
+    private readonly HttpListenerContext _context;
+    private CookieCollection _cookies;
+    private bool _disposed;
+    private WebHeaderCollection _headers;
+    private bool _keepAlive;
+    private string _location;
+    private ResponseStream _outputStream;
+    private bool _sendChunked;
+    private int _statusCode;
+    private string _statusDescription;
+    private Version _version;
 
-    internal string StatusLine {
-      get {
-        var fmt = "HTTP/{0} {1} {2}\r\n";
+    #endregion
 
-        return String.Format (fmt, _version, _statusCode, _statusDescription);
-      }
-    }
+    #region Internal Properties
+
+    internal bool CloseConnection { get; set; }
+
+    internal bool HeadersSent { get; set; }
 
     #endregion
 
     #region Public Properties
 
     /// <summary>
-    /// Gets or sets the encoding for the entity body data included in
-    /// the response.
+    ///     Gets or sets the encoding for the entity body data included in the response.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   A <see cref="Encoding"/> that represents the encoding for
-    ///   the entity body data.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if no encoding is specified.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <see langword="null"/>.
-    ///   </para>
+    ///     A <see cref="Encoding" /> that represents the encoding for the entity body data,
+    ///     or <see langword="null" /> if no encoding is specified.
     /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The response is already being sent.
-    /// </exception>
     /// <exception cref="ObjectDisposedException">
-    /// This instance is closed.
+    ///     This object is closed.
     /// </exception>
-    public Encoding ContentEncoding {
-      get {
-        return _contentEncoding;
-      }
+    public Encoding ContentEncoding
+    {
+        get => _contentEncoding;
 
-      set {
-        if (_disposed)
-          throw new ObjectDisposedException (ObjectName);
-
-        if (_headersSent) {
-          var msg = "The response is already being sent.";
-
-          throw new InvalidOperationException (msg);
+        set
+        {
+            checkDisposed();
+            _contentEncoding = value;
         }
-
-        _contentEncoding = value;
-      }
     }
 
     /// <summary>
-    /// Gets or sets the number of bytes in the entity body data included in
-    /// the response.
+    ///     Gets or sets the number of bytes in the entity body data included in the response.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   A <see cref="long"/> that represents the number of bytes in
-    ///   the entity body data.
-    ///   </para>
-    ///   <para>
-    ///   It is used for the value of the Content-Length header.
-    ///   </para>
-    ///   <para>
-    ///   The default value is zero.
-    ///   </para>
+    ///     A <see cref="long" /> that represents the value of the Content-Length entity-header.
     /// </value>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// The value specified for a set operation is less than zero.
+    ///     The value specified for a set operation is less than zero.
     /// </exception>
     /// <exception cref="InvalidOperationException">
-    /// The response is already being sent.
+    ///     The response has already been sent.
     /// </exception>
     /// <exception cref="ObjectDisposedException">
-    /// This instance is closed.
+    ///     This object is closed.
     /// </exception>
-    public long ContentLength64 {
-      get {
-        return _contentLength;
-      }
+    public long ContentLength64
+    {
+        get => _contentLength;
 
-      set {
-        if (_disposed)
-          throw new ObjectDisposedException (ObjectName);
+        set
+        {
+            checkDisposedOrHeadersSent();
+            if (value < 0)
+                throw new ArgumentOutOfRangeException("Less than zero.", "value");
 
-        if (_headersSent) {
-          var msg = "The response is already being sent.";
-
-          throw new InvalidOperationException (msg);
+            _contentLength = value;
         }
-
-        if (value < 0) {
-          var msg = "Less than zero.";
-
-          throw new ArgumentOutOfRangeException (msg, "value");
-        }
-
-        _contentLength = value;
-      }
     }
 
     /// <summary>
-    /// Gets or sets the media type of the entity body included in
-    /// the response.
+    ///     Gets or sets the media type of the entity body included in the response.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   A <see cref="string"/> that represents the media type of
-    ///   the entity body.
-    ///   </para>
-    ///   <para>
-    ///   It is used for the value of the Content-Type header.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if no media type is specified.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <see langword="null"/>.
-    ///   </para>
+    ///     A <see cref="string" /> that represents the media type of the entity body,
+    ///     or <see langword="null" /> if no media type is specified. This value is
+    ///     used for the value of the Content-Type entity-header.
     /// </value>
     /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   The value specified for a set operation is an empty string.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The value specified for a set operation contains
-    ///   an invalid character.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// The response is already being sent.
+    ///     The value specified for a set operation is empty.
     /// </exception>
     /// <exception cref="ObjectDisposedException">
-    /// This instance is closed.
+    ///     This object is closed.
     /// </exception>
-    public string ContentType {
-      get {
-        return _contentType;
-      }
+    public string ContentType
+    {
+        get => _contentType;
 
-      set {
-        if (_disposed)
-          throw new ObjectDisposedException (ObjectName);
+        set
+        {
+            checkDisposed();
+            if (value != null && value.Length == 0)
+                throw new ArgumentException("An empty string.", nameof(value));
 
-        if (_headersSent) {
-          var msg = "The response is already being sent.";
-
-          throw new InvalidOperationException (msg);
+            _contentType = value;
         }
-
-        if (value == null) {
-          _contentType = null;
-
-          return;
-        }
-
-        if (value.Length == 0)
-          throw new ArgumentException ("An empty string.", "value");
-
-        if (!isValidForContentType (value)) {
-          var msg = "It contains an invalid character.";
-
-          throw new ArgumentException (msg, "value");
-        }
-
-        _contentType = value;
-      }
     }
 
     /// <summary>
-    /// Gets or sets the collection of the HTTP cookies sent with the response.
+    ///     Gets or sets the cookies sent with the response.
     /// </summary>
     /// <value>
-    /// A <see cref="CookieCollection"/> that contains the cookies sent with
-    /// the response.
+    ///     A <see cref="CookieCollection" /> that contains the cookies sent with the response.
     /// </value>
-    public CookieCollection Cookies {
-      get {
-        if (_cookies == null)
-          _cookies = new CookieCollection ();
+    public CookieCollection Cookies
+    {
+        get => _cookies ?? (_cookies = new CookieCollection());
 
-        return _cookies;
-      }
-
-      set {
-        _cookies = value;
-      }
+        set => _cookies = value;
     }
 
     /// <summary>
-    /// Gets or sets the collection of the HTTP headers sent to the client.
+    ///     Gets or sets the HTTP headers sent to the client.
     /// </summary>
     /// <value>
-    /// A <see cref="WebHeaderCollection"/> that contains the headers sent to
-    /// the client.
+    ///     A <see cref="WebHeaderCollection" /> that contains the headers sent to the client.
     /// </value>
     /// <exception cref="InvalidOperationException">
-    /// The value specified for a set operation is not valid for a response.
+    ///     The value specified for a set operation isn't valid for a response.
     /// </exception>
-    public WebHeaderCollection Headers {
-      get {
-        if (_headers == null)
-          _headers = new WebHeaderCollection (HttpHeaderType.Response, false);
+    public WebHeaderCollection Headers
+    {
+        get => _headers ?? (_headers = new WebHeaderCollection(HttpHeaderType.Response, false));
 
-        return _headers;
-      }
+        set
+        {
+            if (value != null && value.State != HttpHeaderType.Response)
+                throw new InvalidOperationException(
+                    "The specified headers aren't valid for a response.");
 
-      set {
-        if (value == null) {
-          _headers = null;
-
-          return;
+            _headers = value;
         }
-
-        if (value.State != HttpHeaderType.Response) {
-          var msg = "The value is not valid for a response.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        _headers = value;
-      }
     }
 
     /// <summary>
-    /// Gets or sets a value indicating whether the server requests
-    /// a persistent connection.
+    ///     Gets or sets a value indicating whether the server requests a persistent connection.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   <c>true</c> if the server requests a persistent connection;
-    ///   otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <c>true</c>.
-    ///   </para>
+    ///     <c>true</c> if the server requests a persistent connection; otherwise, <c>false</c>.
+    ///     The default value is <c>true</c>.
     /// </value>
     /// <exception cref="InvalidOperationException">
-    /// The response is already being sent.
+    ///     The response has already been sent.
     /// </exception>
     /// <exception cref="ObjectDisposedException">
-    /// This instance is closed.
+    ///     This object is closed.
     /// </exception>
-    public bool KeepAlive {
-      get {
-        return _keepAlive;
-      }
+    public bool KeepAlive
+    {
+        get => _keepAlive;
 
-      set {
-        if (_disposed)
-          throw new ObjectDisposedException (ObjectName);
-
-        if (_headersSent) {
-          var msg = "The response is already being sent.";
-
-          throw new InvalidOperationException (msg);
+        set
+        {
+            checkDisposedOrHeadersSent();
+            _keepAlive = value;
         }
-
-        _keepAlive = value;
-      }
     }
 
     /// <summary>
-    /// Gets a stream instance to which the entity body data can be written.
+    ///     Gets a <see cref="Stream" /> to use to write the entity body data.
     /// </summary>
     /// <value>
-    /// A <see cref="Stream"/> instance to which the entity body data can be
-    /// written.
+    ///     A <see cref="Stream" /> to use to write the entity body data.
     /// </value>
     /// <exception cref="ObjectDisposedException">
-    /// This instance is closed.
+    ///     This object is closed.
     /// </exception>
-    public Stream OutputStream {
-      get {
-        if (_disposed)
-          throw new ObjectDisposedException (ObjectName);
-
-        if (_outputStream == null)
-          _outputStream = _context.Connection.GetResponseStream ();
-
-        return _outputStream;
-      }
+    public Stream OutputStream
+    {
+        get
+        {
+            checkDisposed();
+            return _outputStream ?? (_outputStream = _context.Connection.GetResponseStream());
+        }
     }
 
     /// <summary>
-    /// Gets the HTTP version used for the response.
+    ///     Gets or sets the HTTP version used in the response.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   A <see cref="Version"/> that represents the HTTP version used for
-    ///   the response.
-    ///   </para>
-    ///   <para>
-    ///   Always returns same as 1.1.
-    ///   </para>
+    ///     A <see cref="Version" /> that represents the version used in the response.
     /// </value>
-    public Version ProtocolVersion {
-      get {
-        return _version;
-      }
+    /// <exception cref="ArgumentNullException">
+    ///     The value specified for a set operation is <see langword="null" />.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    ///     The value specified for a set operation doesn't have its <c>Major</c> property set to 1 or
+    ///     doesn't have its <c>Minor</c> property set to either 0 or 1.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    ///     The response has already been sent.
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">
+    ///     This object is closed.
+    /// </exception>
+    public Version ProtocolVersion
+    {
+        get => _version;
+
+        set
+        {
+            checkDisposedOrHeadersSent();
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+
+            if (value.Major != 1 || (value.Minor != 0 && value.Minor != 1))
+                throw new ArgumentException("Not 1.0 or 1.1.", nameof(value));
+
+            _version = value;
+        }
     }
 
     /// <summary>
-    /// Gets or sets the URL to which the client is redirected to locate
-    /// a requested resource.
+    ///     Gets or sets the URL to which the client is redirected to locate a requested resource.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   A <see cref="string"/> that represents the absolute URL for
-    ///   the redirect location.
-    ///   </para>
-    ///   <para>
-    ///   It is used for the value of the Location header.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if no redirect location is specified.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <see langword="null"/>.
-    ///   </para>
+    ///     A <see cref="string" /> that represents the value of the Location response-header,
+    ///     or <see langword="null" /> if no redirect location is specified.
     /// </value>
     /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   The value specified for a set operation is an empty string.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The value specified for a set operation is not an absolute URL.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// The response is already being sent.
+    ///     The value specified for a set operation isn't an absolute URL.
     /// </exception>
     /// <exception cref="ObjectDisposedException">
-    /// This instance is closed.
+    ///     This object is closed.
     /// </exception>
-    public string RedirectLocation {
-      get {
-        return _redirectLocation != null
-               ? _redirectLocation.OriginalString
-               : null;
-      }
+    public string RedirectLocation
+    {
+        get => _location;
 
-      set {
-        if (_disposed)
-          throw new ObjectDisposedException (ObjectName);
+        set
+        {
+            checkDisposed();
+            if (value == null)
+            {
+                _location = null;
+                return;
+            }
 
-        if (_headersSent) {
-          var msg = "The response is already being sent.";
+            Uri uri = null;
+            if (!value.MaybeUri() || !Uri.TryCreate(value, UriKind.Absolute, out uri))
+                throw new ArgumentException("Not an absolute URL.", nameof(value));
 
-          throw new InvalidOperationException (msg);
+            _location = value;
         }
-
-        if (value == null) {
-          _redirectLocation = null;
-
-          return;
-        }
-
-        if (value.Length == 0)
-          throw new ArgumentException ("An empty string.", "value");
-
-        Uri uri;
-
-        if (!Uri.TryCreate (value, UriKind.Absolute, out uri)) {
-          var msg = "Not an absolute URL.";
-
-          throw new ArgumentException (msg, "value");
-        }
-
-        _redirectLocation = uri;
-      }
     }
 
     /// <summary>
-    /// Gets or sets a value indicating whether the response uses the chunked
-    /// transfer encoding.
+    ///     Gets or sets a value indicating whether the response uses the chunked transfer encoding.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   <c>true</c> if the response uses the chunked transfer encoding;
-    ///   otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <c>false</c>.
-    ///   </para>
+    ///     <c>true</c> if the response uses the chunked transfer encoding;
+    ///     otherwise, <c>false</c>. The default value is <c>false</c>.
     /// </value>
     /// <exception cref="InvalidOperationException">
-    /// The response is already being sent.
+    ///     The response has already been sent.
     /// </exception>
     /// <exception cref="ObjectDisposedException">
-    /// This instance is closed.
+    ///     This object is closed.
     /// </exception>
-    public bool SendChunked {
-      get {
-        return _sendChunked;
-      }
+    public bool SendChunked
+    {
+        get => _sendChunked;
 
-      set {
-        if (_disposed)
-          throw new ObjectDisposedException (ObjectName);
-
-        if (_headersSent) {
-          var msg = "The response is already being sent.";
-
-          throw new InvalidOperationException (msg);
+        set
+        {
+            checkDisposedOrHeadersSent();
+            _sendChunked = value;
         }
-
-        _sendChunked = value;
-      }
     }
 
     /// <summary>
-    /// Gets or sets the HTTP status code returned to the client.
+    ///     Gets or sets the HTTP status code returned to the client.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   An <see cref="int"/> that represents the HTTP status code for
-    ///   the response to the request.
-    ///   </para>
-    ///   <para>
-    ///   The default value is 200. It indicates that the request has
-    ///   succeeded.
-    ///   </para>
+    ///     An <see cref="int" /> that represents the status code for the response to
+    ///     the request. The default value is same as <see cref="HttpStatusCode.OK" />.
     /// </value>
     /// <exception cref="InvalidOperationException">
-    /// The response is already being sent.
+    ///     The response has already been sent.
     /// </exception>
     /// <exception cref="ObjectDisposedException">
-    /// This instance is closed.
+    ///     This object is closed.
     /// </exception>
     /// <exception cref="System.Net.ProtocolViolationException">
-    ///   <para>
-    ///   The value specified for a set operation is invalid.
-    ///   </para>
-    ///   <para>
-    ///   Valid values are between 100 and 999 inclusive.
-    ///   </para>
+    ///     The value specified for a set operation is invalid. Valid values are
+    ///     between 100 and 999 inclusive.
     /// </exception>
-    public int StatusCode {
-      get {
-        return _statusCode;
-      }
+    public int StatusCode
+    {
+        get => _statusCode;
 
-      set {
-        if (_disposed)
-          throw new ObjectDisposedException (ObjectName);
+        set
+        {
+            checkDisposedOrHeadersSent();
+            if (value < 100 || value > 999)
+                throw new ProtocolViolationException(
+                    "A value isn't between 100 and 999 inclusive.");
 
-        if (_headersSent) {
-          var msg = "The response is already being sent.";
-
-          throw new InvalidOperationException (msg);
+            _statusCode = value;
+            _statusDescription = value.GetStatusDescription();
         }
-
-        if (value < 100 || value > 999) {
-          var msg = "A value is not between 100 and 999 inclusive.";
-
-          throw new System.Net.ProtocolViolationException (msg);
-        }
-
-        _statusCode = value;
-        _statusDescription = value.GetStatusDescription ();
-      }
     }
 
     /// <summary>
-    /// Gets or sets the description of the HTTP status code returned to
-    /// the client.
+    ///     Gets or sets the description of the HTTP status code returned to the client.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   A <see cref="string"/> that represents the description of
-    ///   the HTTP status code for the response to the request.
-    ///   </para>
-    ///   <para>
-    ///   The default value is
-    ///   the <see href="http://tools.ietf.org/html/rfc2616#section-10">
-    ///   RFC 2616</see> description for the <see cref="StatusCode"/>
-    ///   property value.
-    ///   </para>
-    ///   <para>
-    ///   An empty string if an RFC 2616 description does not exist.
-    ///   </para>
+    ///     A <see cref="string" /> that represents the description of the status code. The default
+    ///     value is the <see href="http://tools.ietf.org/html/rfc2616#section-10">RFC 2616</see>
+    ///     description for the <see cref="HttpListenerResponse.StatusCode" /> property value,
+    ///     or <see cref="String.Empty" /> if an RFC 2616 description doesn't exist.
     /// </value>
     /// <exception cref="ArgumentException">
-    /// The value specified for a set operation contains an invalid character.
-    /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// The value specified for a set operation is <see langword="null"/>.
+    ///     The value specified for a set operation contains invalid characters.
     /// </exception>
     /// <exception cref="InvalidOperationException">
-    /// The response is already being sent.
+    ///     The response has already been sent.
     /// </exception>
     /// <exception cref="ObjectDisposedException">
-    /// This instance is closed.
+    ///     This object is closed.
     /// </exception>
-    public string StatusDescription {
-      get {
-        return _statusDescription;
-      }
+    public string StatusDescription
+    {
+        get => _statusDescription;
 
-      set {
-        if (_disposed)
-          throw new ObjectDisposedException (ObjectName);
+        set
+        {
+            checkDisposedOrHeadersSent();
+            if (value == null || value.Length == 0)
+            {
+                _statusDescription = _statusCode.GetStatusDescription();
+                return;
+            }
 
-        if (_headersSent) {
-          var msg = "The response is already being sent.";
+            if (!value.IsText() || value.IndexOfAny(new[] { '\r', '\n' }) > -1)
+                throw new ArgumentException("Contains invalid characters.", nameof(value));
 
-          throw new InvalidOperationException (msg);
+            _statusDescription = value;
         }
-
-        if (value == null)
-          throw new ArgumentNullException ("value");
-
-        if (value.Length == 0) {
-          _statusDescription = _statusCode.GetStatusDescription ();
-
-          return;
-        }
-
-        if (!isValidForStatusDescription (value)) {
-          var msg = "It contains an invalid character.";
-
-          throw new ArgumentException (msg, "value");
-        }
-
-        _statusDescription = value;
-      }
     }
 
     #endregion
 
     #region Private Methods
 
-    private bool canSetCookie (Cookie cookie)
+    private bool canAddOrUpdate(Cookie cookie)
     {
-      var res = findCookie (cookie).ToList ();
+        if (_cookies == null || _cookies.Count == 0)
+            return true;
 
-      if (res.Count == 0)
-        return true;
+        var found = findCookie(cookie).ToList();
+        if (found.Count == 0)
+            return true;
 
-      var ver = cookie.Version;
+        var ver = cookie.Version;
+        foreach (var c in found)
+            if (c.Version == ver)
+                return true;
 
-      foreach (var c in res) {
-        if (c.Version == ver)
-          return true;
-      }
-
-      return false;
+        return false;
     }
 
-    private void close (bool force)
+    private void checkDisposed()
     {
-      _disposed = true;
-
-      _context.Connection.Close (force);
+        if (_disposed)
+            throw new ObjectDisposedException(GetType().ToString());
     }
 
-    private void close (byte[] responseEntity, int bufferLength, bool willBlock)
+    private void checkDisposedOrHeadersSent()
     {
-      if (willBlock) {
-        OutputStream.WriteBytes (responseEntity, bufferLength);
-        close (false);
+        if (_disposed)
+            throw new ObjectDisposedException(GetType().ToString());
 
-        return;
-      }
-
-      OutputStream.WriteBytesAsync (
-        responseEntity,
-        bufferLength,
-        () => close (false),
-        null
-      );
+        if (HeadersSent)
+            throw new InvalidOperationException("Cannot be changed after the headers are sent.");
     }
 
-    private static string createContentTypeHeaderText (
-      string value,
-      Encoding encoding
-    )
+    private void close(bool force)
     {
-      if (value.Contains ("charset="))
-        return value;
-
-      if (encoding == null)
-        return value;
-
-      var fmt = "{0}; charset={1}";
-
-      return String.Format (fmt, value, encoding.WebName);
+        _disposed = true;
+        _context.Connection.Close(force);
     }
 
-    private IEnumerable<Cookie> findCookie (Cookie cookie)
+    private IEnumerable<Cookie> findCookie(Cookie cookie)
     {
-      if (_cookies == null || _cookies.Count == 0)
-        yield break;
-
-      foreach (var c in _cookies) {
-        if (c.EqualsWithoutValueAndVersion (cookie))
-          yield return c;
-      }
-    }
-
-    private static bool isValidForContentType (string value)
-    {
-      foreach (var c in value) {
-        if (c < 0x20)
-          return false;
-
-        if (c > 0x7e)
-          return false;
-
-        if ("()<>@:\\[]?{}".IndexOf (c) > -1)
-          return false;
-      }
-
-      return true;
-    }
-
-    private static bool isValidForStatusDescription (string value)
-    {
-      foreach (var c in value) {
-        if (c < 0x20)
-          return false;
-
-        if (c > 0x7e)
-          return false;
-      }
-
-      return true;
+        var name = cookie.Name;
+        var domain = cookie.Domain;
+        var path = cookie.Path;
+        if (_cookies != null)
+            foreach (Cookie c in _cookies)
+                if (c.Name.Equals(name, StringComparison.OrdinalIgnoreCase) &&
+                    c.Domain.Equals(domain, StringComparison.OrdinalIgnoreCase) &&
+                    c.Path.Equals(path, StringComparison.Ordinal))
+                    yield return c;
     }
 
     #endregion
@@ -857,345 +592,253 @@ namespace WebSocketSharp.Net
     #region Public Methods
 
     /// <summary>
-    /// Closes the connection to the client without sending a response.
+    ///     Closes the connection to the client without returning a response.
     /// </summary>
-    public void Abort ()
+    public void Abort()
     {
-      if (_disposed)
-        return;
+        if (_disposed)
+            return;
 
-      close (true);
+        close(true);
     }
 
     /// <summary>
-    /// Appends an HTTP cookie to the cookies sent with the response.
-    /// </summary>
-    /// <param name="cookie">
-    /// A <see cref="Cookie"/> to append.
-    /// </param>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="cookie"/> is <see langword="null"/>.
-    /// </exception>
-    public void AppendCookie (Cookie cookie)
-    {
-      Cookies.Add (cookie);
-    }
-
-    /// <summary>
-    /// Appends an HTTP header with the specified name and value to
-    /// the headers for the response.
+    ///     Adds an HTTP header with the specified <paramref name="name" /> and
+    ///     <paramref name="value" /> to the headers for the response.
     /// </summary>
     /// <param name="name">
-    /// A <see cref="string"/> that specifies the name of the header to
-    /// append.
+    ///     A <see cref="string" /> that represents the name of the header to add.
     /// </param>
     /// <param name="value">
-    /// A <see cref="string"/> that specifies the value of the header to
-    /// append.
+    ///     A <see cref="string" /> that represents the value of the header to add.
     /// </param>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   <paramref name="name"/> is an empty string.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="name"/> is a string of spaces.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="name"/> contains an invalid character.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="value"/> contains an invalid character.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="name"/> is a restricted header name.
-    ///   </para>
-    /// </exception>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="name"/> is <see langword="null"/>.
+    ///     <paramref name="name" /> is <see langword="null" /> or empty.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    ///     <para>
+    ///         <paramref name="name" /> or <paramref name="value" /> contains invalid characters.
+    ///     </para>
+    ///     <para>
+    ///         -or-
+    ///     </para>
+    ///     <para>
+    ///         <paramref name="name" /> is a restricted header name.
+    ///     </para>
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// The length of <paramref name="value"/> is greater than 65,535
-    /// characters.
+    ///     The length of <paramref name="value" /> is greater than 65,535 characters.
     /// </exception>
     /// <exception cref="InvalidOperationException">
-    /// The current headers do not allow the header.
+    ///     The header cannot be allowed to add to the current headers.
     /// </exception>
-    public void AppendHeader (string name, string value)
+    public void AddHeader(string name, string value)
     {
-      Headers.Add (name, value);
+        Headers.Set(name, value);
     }
 
     /// <summary>
-    /// Sends the response to the client and releases the resources used by
-    /// this instance.
+    ///     Appends the specified <paramref name="cookie" /> to the cookies sent with the response.
     /// </summary>
-    public void Close ()
+    /// <param name="cookie">
+    ///     A <see cref="Cookie" /> to append.
+    /// </param>
+    /// <exception cref="ArgumentNullException">
+    ///     <paramref name="cookie" /> is <see langword="null" />.
+    /// </exception>
+    public void AppendCookie(Cookie cookie)
     {
-      if (_disposed)
-        return;
-
-      close (false);
+        Cookies.Add(cookie);
     }
 
     /// <summary>
-    /// Sends the response with the specified entity body data to the client
-    /// and releases the resources used by this instance.
+    ///     Appends a <paramref name="value" /> to the specified HTTP header sent with the response.
+    /// </summary>
+    /// <param name="name">
+    ///     A <see cref="string" /> that represents the name of the header to append
+    ///     <paramref name="value" /> to.
+    /// </param>
+    /// <param name="value">
+    ///     A <see cref="string" /> that represents the value to append to the header.
+    /// </param>
+    /// <exception cref="ArgumentNullException">
+    ///     <paramref name="name" /> is <see langword="null" /> or empty.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    ///     <para>
+    ///         <paramref name="name" /> or <paramref name="value" /> contains invalid characters.
+    ///     </para>
+    ///     <para>
+    ///         -or-
+    ///     </para>
+    ///     <para>
+    ///         <paramref name="name" /> is a restricted header name.
+    ///     </para>
+    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    ///     The length of <paramref name="value" /> is greater than 65,535 characters.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    ///     The current headers cannot allow the header to append a value.
+    /// </exception>
+    public void AppendHeader(string name, string value)
+    {
+        Headers.Add(name, value);
+    }
+
+    /// <summary>
+    ///     Returns the response to the client and releases the resources used by
+    ///     this <see cref="HttpListenerResponse" /> instance.
+    /// </summary>
+    public void Close()
+    {
+        if (_disposed)
+            return;
+
+        close(false);
+    }
+
+    /// <summary>
+    ///     Returns the response with the specified array of <see cref="byte" /> to the client and
+    ///     releases the resources used by this <see cref="HttpListenerResponse" /> instance.
     /// </summary>
     /// <param name="responseEntity">
-    /// An array of <see cref="byte"/> that contains the entity body data.
+    ///     An array of <see cref="byte" /> that contains the response entity body data.
     /// </param>
     /// <param name="willBlock">
-    /// A <see cref="bool"/>: <c>true</c> if this method blocks execution while
-    /// flushing the stream to the client; otherwise, <c>false</c>.
+    ///     <c>true</c> if this method blocks execution while flushing the stream to the client;
+    ///     otherwise, <c>false</c>.
     /// </param>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="responseEntity"/> is <see langword="null"/>.
+    ///     <paramref name="responseEntity" /> is <see langword="null" />.
     /// </exception>
     /// <exception cref="ObjectDisposedException">
-    /// This instance is closed.
+    ///     This object is closed.
     /// </exception>
-    public void Close (byte[] responseEntity, bool willBlock)
+    public void Close(byte[] responseEntity, bool willBlock)
     {
-      if (_disposed)
-        throw new ObjectDisposedException (ObjectName);
+        checkDisposed();
+        if (responseEntity == null)
+            throw new ArgumentNullException(nameof(responseEntity));
 
-      if (responseEntity == null)
-        throw new ArgumentNullException ("responseEntity");
+        var len = responseEntity.Length;
+        var output = OutputStream;
+        if (willBlock)
+        {
+            output.Write(responseEntity, 0, len);
+            close(false);
 
-      var len = responseEntity.LongLength;
+            return;
+        }
 
-      if (len > Int32.MaxValue) {
-        close (responseEntity, 1024, willBlock);
-
-        return;
-      }
-
-      var stream = OutputStream;
-
-      if (willBlock) {
-        stream.Write (responseEntity, 0, (int) len);
-        close (false);
-
-        return;
-      }
-
-      stream.BeginWrite (
-        responseEntity,
-        0,
-        (int) len,
-        ar => {
-          stream.EndWrite (ar);
-          close (false);
-        },
-        null
-      );
+        output.BeginWrite(
+            responseEntity,
+            0,
+            len,
+            ar =>
+            {
+                output.EndWrite(ar);
+                close(false);
+            },
+            null);
     }
 
     /// <summary>
-    /// Copies some properties from the specified response instance to
-    /// this instance.
+    ///     Copies some properties from the specified <see cref="HttpListenerResponse" /> to
+    ///     this response.
     /// </summary>
     /// <param name="templateResponse">
-    /// A <see cref="HttpListenerResponse"/> to copy.
+    ///     A <see cref="HttpListenerResponse" /> to copy.
     /// </param>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="templateResponse"/> is <see langword="null"/>.
+    ///     <paramref name="templateResponse" /> is <see langword="null" />.
     /// </exception>
-    public void CopyFrom (HttpListenerResponse templateResponse)
+    public void CopyFrom(HttpListenerResponse templateResponse)
     {
-      if (templateResponse == null)
-        throw new ArgumentNullException ("templateResponse");
+        if (templateResponse == null)
+            throw new ArgumentNullException(nameof(templateResponse));
 
-      var headers = templateResponse._headers;
+        if (templateResponse._headers != null)
+        {
+            if (_headers != null)
+                _headers.Clear();
 
-      if (headers != null) {
-        if (_headers != null)
-          _headers.Clear ();
+            Headers.Add(templateResponse._headers);
+        }
+        else if (_headers != null)
+        {
+            _headers = null;
+        }
 
-        Headers.Add (headers);
-      }
-      else {
-        _headers = null;
-      }
-
-      _contentLength = templateResponse._contentLength;
-      _statusCode = templateResponse._statusCode;
-      _statusDescription = templateResponse._statusDescription;
-      _keepAlive = templateResponse._keepAlive;
-      _version = templateResponse._version;
+        _contentLength = templateResponse._contentLength;
+        _statusCode = templateResponse._statusCode;
+        _statusDescription = templateResponse._statusDescription;
+        _keepAlive = templateResponse._keepAlive;
+        _version = templateResponse._version;
     }
 
     /// <summary>
-    /// Configures the response to redirect the client's request to
-    /// the specified URL.
+    ///     Configures the response to redirect the client's request to
+    ///     the specified <paramref name="url" />.
     /// </summary>
     /// <remarks>
-    /// This method sets the <see cref="RedirectLocation"/> property to
-    /// <paramref name="url"/>, the <see cref="StatusCode"/> property to
-    /// 302, and the <see cref="StatusDescription"/> property to "Found".
+    ///     This method sets the <see cref="HttpListenerResponse.RedirectLocation" /> property to
+    ///     <paramref name="url" />, the <see cref="HttpListenerResponse.StatusCode" /> property to
+    ///     <c>302</c>, and the <see cref="HttpListenerResponse.StatusDescription" /> property to
+    ///     <c>"Found"</c>.
     /// </remarks>
     /// <param name="url">
-    /// A <see cref="string"/> that specifies the absolute URL to which
-    /// the client is redirected to locate a requested resource.
+    ///     A <see cref="string" /> that represents the URL to redirect the client's request to.
     /// </param>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   <paramref name="url"/> is an empty string.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="url"/> is not an absolute URL.
-    ///   </para>
-    /// </exception>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="url"/> is <see langword="null"/>.
+    ///     <paramref name="url" /> is <see langword="null" />.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    ///     <paramref name="url" /> isn't an absolute URL.
     /// </exception>
     /// <exception cref="InvalidOperationException">
-    /// The response is already being sent.
+    ///     The response has already been sent.
     /// </exception>
     /// <exception cref="ObjectDisposedException">
-    /// This instance is closed.
+    ///     This object is closed.
     /// </exception>
-    public void Redirect (string url)
+    public void Redirect(string url)
     {
-      if (_disposed)
-        throw new ObjectDisposedException (ObjectName);
+        checkDisposedOrHeadersSent();
+        if (url == null)
+            throw new ArgumentNullException(nameof(url));
 
-      if (_headersSent) {
-        var msg = "The response is already being sent.";
+        Uri uri = null;
+        if (!url.MaybeUri() || !Uri.TryCreate(url, UriKind.Absolute, out uri))
+            throw new ArgumentException("Not an absolute URL.", nameof(url));
 
-        throw new InvalidOperationException (msg);
-      }
-
-      if (url == null)
-        throw new ArgumentNullException ("url");
-
-      if (url.Length == 0)
-        throw new ArgumentException ("An empty string.", "url");
-
-      Uri uri;
-
-      if (!Uri.TryCreate (url, UriKind.Absolute, out uri)) {
-        var msg = "Not an absolute URL.";
-
-        throw new ArgumentException (msg, "url");
-      }
-
-      _redirectLocation = uri;
-      _statusCode = 302;
-      _statusDescription = "Found";
+        _location = url;
+        _statusCode = 302;
+        _statusDescription = "Found";
     }
 
     /// <summary>
-    /// Adds or updates an HTTP cookie in the cookies sent with the response.
+    ///     Adds or updates a <paramref name="cookie" /> in the cookies sent with the response.
     /// </summary>
     /// <param name="cookie">
-    /// A <see cref="Cookie"/> to set.
+    ///     A <see cref="Cookie" /> to set.
     /// </param>
-    /// <exception cref="ArgumentException">
-    /// <paramref name="cookie"/> already exists in the cookies but
-    /// it cannot be updated.
-    /// </exception>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="cookie"/> is <see langword="null"/>.
+    ///     <paramref name="cookie" /> is <see langword="null" />.
     /// </exception>
-    public void SetCookie (Cookie cookie)
-    {
-      if (cookie == null)
-        throw new ArgumentNullException ("cookie");
-
-      if (!canSetCookie (cookie)) {
-        var msg = "It cannot be updated.";
-
-        throw new ArgumentException (msg, "cookie");
-      }
-
-      Cookies.Add (cookie);
-    }
-
-    /// <summary>
-    /// Adds or updates an HTTP header with the specified name and value in
-    /// the headers for the response.
-    /// </summary>
-    /// <param name="name">
-    /// A <see cref="string"/> that specifies the name of the header to set.
-    /// </param>
-    /// <param name="value">
-    /// A <see cref="string"/> that specifies the value of the header to set.
-    /// </param>
     /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   <paramref name="name"/> is an empty string.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="name"/> is a string of spaces.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="name"/> contains an invalid character.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="value"/> contains an invalid character.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="name"/> is a restricted header name.
-    ///   </para>
+    ///     <paramref name="cookie" /> already exists in the cookies and couldn't be replaced.
     /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="name"/> is <see langword="null"/>.
-    /// </exception>
-    /// <exception cref="ArgumentOutOfRangeException">
-    /// The length of <paramref name="value"/> is greater than 65,535
-    /// characters.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// The current headers do not allow the header.
-    /// </exception>
-    public void SetHeader (string name, string value)
+    public void SetCookie(Cookie cookie)
     {
-      Headers.Set (name, value);
+        if (cookie == null)
+            throw new ArgumentNullException(nameof(cookie));
+
+        if (!canAddOrUpdate(cookie))
+            throw new ArgumentException("Cannot be replaced.", nameof(cookie));
+
+        Cookies.Add(cookie);
     }
 
     #endregion
-
-    #region Explicit Interface Implementations
-
-    /// <summary>
-    /// Releases all resources used by this instance.
-    /// </summary>
-    void IDisposable.Dispose ()
-    {
-      if (_disposed)
-        return;
-
-      close (true);
-    }
-
-    #endregion
-  }
 }

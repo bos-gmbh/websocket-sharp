@@ -1,11 +1,12 @@
 ﻿#region License
+
 /*
  * ClientSslConfiguration.cs
  *
  * The MIT License
  *
  * Copyright (c) 2014 liryna
- * Copyright (c) 2014-2024 sta.blockhead
+ * Copyright (c) 2014-2017 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,13 +26,16 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 #region Authors
+
 /*
  * Authors:
  * - Liryna <liryna.stark@gmail.com>
  */
+
 #endregion
 
 using System;
@@ -39,75 +43,65 @@ using System.Net.Security;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 
-namespace WebSocketSharp.Net
+#pragma warning disable CS8625
+namespace WebSocketSharp.Net;
+
+/// <summary>
+///     Stores the parameters for the <see cref="SslStream" /> used by clients.
+/// </summary>
+public class ClientSslConfiguration
 {
-  /// <summary>
-  /// Stores the parameters for an <see cref="SslStream"/> instance used by
-  /// a client.
-  /// </summary>
-  public class ClientSslConfiguration
-  {
     #region Private Fields
 
-    private bool                                _checkCertRevocation;
-    private LocalCertificateSelectionCallback   _clientCertSelectionCallback;
-    private X509CertificateCollection           _clientCerts;
-    private SslProtocols                        _enabledSslProtocols;
+    private LocalCertificateSelectionCallback _clientCertSelectionCallback;
     private RemoteCertificateValidationCallback _serverCertValidationCallback;
-    private string                              _targetHost;
 
     #endregion
 
     #region Public Constructors
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="ClientSslConfiguration"/>
-    /// class with the specified target host name.
+    ///     Initializes a new instance of the <see cref="ClientSslConfiguration" /> class.
     /// </summary>
-    /// <param name="targetHost">
-    /// A <see cref="string"/> that specifies the name of the server that
-    /// will share a secure connection with the client.
-    /// </param>
-    /// <exception cref="ArgumentException">
-    /// <paramref name="targetHost"/> is an empty string.
-    /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="targetHost"/> is <see langword="null"/>.
-    /// </exception>
-    public ClientSslConfiguration (string targetHost)
+    public ClientSslConfiguration()
     {
-      if (targetHost == null)
-        throw new ArgumentNullException ("targetHost");
-
-      if (targetHost.Length == 0)
-        throw new ArgumentException ("An empty string.", "targetHost");
-
-      _targetHost = targetHost;
-
-      _enabledSslProtocols = SslProtocols.None;
+        EnabledSslProtocols = SslProtocols.Default;
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="ClientSslConfiguration"/>
-    /// class copying from the specified configuration.
+    ///     Initializes a new instance of the <see cref="ClientSslConfiguration" /> class
+    ///     with the specified <paramref name="targetHost" />.
+    /// </summary>
+    /// <param name="targetHost">
+    ///     A <see cref="string" /> that represents the target host server name.
+    /// </param>
+    public ClientSslConfiguration(string targetHost)
+    {
+        TargetHost = targetHost;
+        EnabledSslProtocols = SslProtocols.Default;
+    }
+
+    /// <summary>
+    ///     Copies the parameters from the specified <paramref name="configuration" /> to
+    ///     a new instance of the <see cref="ClientSslConfiguration" /> class.
     /// </summary>
     /// <param name="configuration">
-    /// A <see cref="ClientSslConfiguration"/> from which to copy.
+    ///     A <see cref="ClientSslConfiguration" /> from which to copy.
     /// </param>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="configuration"/> is <see langword="null"/>.
+    ///     <paramref name="configuration" /> is <see langword="null" />.
     /// </exception>
-    public ClientSslConfiguration (ClientSslConfiguration configuration)
+    public ClientSslConfiguration(ClientSslConfiguration configuration)
     {
-      if (configuration == null)
-        throw new ArgumentNullException ("configuration");
+        if (configuration == null)
+            throw new ArgumentNullException(nameof(configuration));
 
-      _checkCertRevocation = configuration._checkCertRevocation;
-      _clientCertSelectionCallback = configuration._clientCertSelectionCallback;
-      _clientCerts = configuration._clientCerts;
-      _enabledSslProtocols = configuration._enabledSslProtocols;
-      _serverCertValidationCallback = configuration._serverCertValidationCallback;
-      _targetHost = configuration._targetHost;
+        CheckCertificateRevocation = configuration.CheckCertificateRevocation;
+        _clientCertSelectionCallback = configuration._clientCertSelectionCallback;
+        ClientCertificates = configuration.ClientCertificates;
+        EnabledSslProtocols = configuration.EnabledSslProtocols;
+        _serverCertValidationCallback = configuration._serverCertValidationCallback;
+        TargetHost = configuration.TargetHost;
     }
 
     #endregion
@@ -115,197 +109,151 @@ namespace WebSocketSharp.Net
     #region Public Properties
 
     /// <summary>
-    /// Gets or sets a value indicating whether the certificate revocation
-    /// list is checked during authentication.
+    ///     Gets or sets a value indicating whether the certificate revocation
+    ///     list is checked during authentication.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   <c>true</c> if the certificate revocation list is checked during
-    ///   authentication; otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <c>false</c>.
-    ///   </para>
+    ///     <para>
+    ///         <c>true</c> if the certificate revocation list is checked during
+    ///         authentication; otherwise, <c>false</c>.
+    ///     </para>
+    ///     <para>
+    ///         The default value is <c>false</c>.
+    ///     </para>
     /// </value>
-    public bool CheckCertificateRevocation {
-      get {
-        return _checkCertRevocation;
-      }
-
-      set {
-        _checkCertRevocation = value;
-      }
-    }
+    public bool CheckCertificateRevocation { get; set; }
 
     /// <summary>
-    /// Gets or sets the collection of the certificates from which to select
-    /// one to supply to the server.
+    ///     Gets or sets the certificates from which to select one to
+    ///     supply to the server.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   A <see cref="X509CertificateCollection"/> that contains
-    ///   the certificates from which to select.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if not present.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <see langword="null"/>.
-    ///   </para>
+    ///     <para>
+    ///         A <see cref="X509CertificateCollection" /> or <see langword="null" />.
+    ///     </para>
+    ///     <para>
+    ///         That collection contains client certificates from which to select.
+    ///     </para>
+    ///     <para>
+    ///         The default value is <see langword="null" />.
+    ///     </para>
     /// </value>
-    public X509CertificateCollection ClientCertificates {
-      get {
-        return _clientCerts;
-      }
-
-      set {
-        _clientCerts = value;
-      }
-    }
+    public X509CertificateCollection ClientCertificates { get; set; }
 
     /// <summary>
-    /// Gets or sets the callback used to select the certificate to supply to
-    /// the server.
+    ///     Gets or sets the callback used to select the certificate to
+    ///     supply to the server.
     /// </summary>
     /// <remarks>
-    /// No certificate is supplied if the callback returns <see langword="null"/>.
+    ///     No certificate is supplied if the callback returns
+    ///     <see langword="null" />.
     /// </remarks>
     /// <value>
-    ///   <para>
-    ///   A <see cref="LocalCertificateSelectionCallback"/> delegate.
-    ///   </para>
-    ///   <para>
-    ///   It represents the delegate called when the client selects
-    ///   the certificate.
-    ///   </para>
-    ///   <para>
-    ///   The default value invokes a method that only returns
-    ///   <see langword="null"/>.
-    ///   </para>
+    ///     <para>
+    ///         A <see cref="LocalCertificateSelectionCallback" /> delegate that
+    ///         invokes the method called for selecting the certificate.
+    ///     </para>
+    ///     <para>
+    ///         The default value is a delegate that invokes a method that
+    ///         only returns <see langword="null" />.
+    ///     </para>
     /// </value>
-    public LocalCertificateSelectionCallback ClientCertificateSelectionCallback {
-      get {
-        if (_clientCertSelectionCallback == null)
-          _clientCertSelectionCallback = defaultSelectClientCertificate;
+    public LocalCertificateSelectionCallback ClientCertificateSelectionCallback
+    {
+        get
+        {
+            if (_clientCertSelectionCallback == null)
+                _clientCertSelectionCallback = defaultSelectClientCertificate;
 
-        return _clientCertSelectionCallback;
-      }
+            return _clientCertSelectionCallback;
+        }
 
-      set {
-        _clientCertSelectionCallback = value;
-      }
+        set => _clientCertSelectionCallback = value;
     }
 
     /// <summary>
-    /// Gets or sets the enabled versions of the SSL/TLS protocols.
+    ///     Gets or sets the protocols used for authentication.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   Any of the <see cref="SslProtocols"/> enum values.
-    ///   </para>
-    ///   <para>
-    ///   It represents the enabled versions of the SSL/TLS protocols.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <see cref="SslProtocols.None"/>.
-    ///   </para>
+    ///     <para>
+    ///         The <see cref="SslProtocols" /> enum values that represent
+    ///         the protocols used for authentication.
+    ///     </para>
+    ///     <para>
+    ///         The default value is <see cref="SslProtocols.Default" />.
+    ///     </para>
     /// </value>
-    public SslProtocols EnabledSslProtocols {
-      get {
-        return _enabledSslProtocols;
-      }
-
-      set {
-        _enabledSslProtocols = value;
-      }
-    }
+    public SslProtocols EnabledSslProtocols { get; set; }
 
     /// <summary>
-    /// Gets or sets the callback used to validate the certificate supplied by
-    /// the server.
+    ///     Gets or sets the callback used to validate the certificate
+    ///     supplied by the server.
     /// </summary>
     /// <remarks>
-    /// The certificate is valid if the callback returns <c>true</c>.
+    ///     The certificate is valid if the callback returns <c>true</c>.
     /// </remarks>
     /// <value>
-    ///   <para>
-    ///   A <see cref="RemoteCertificateValidationCallback"/> delegate.
-    ///   </para>
-    ///   <para>
-    ///   It represents the delegate called when the client validates
-    ///   the certificate.
-    ///   </para>
-    ///   <para>
-    ///   The default value invokes a method that only returns <c>true</c>.
-    ///   </para>
+    ///     <para>
+    ///         A <see cref="RemoteCertificateValidationCallback" /> delegate that
+    ///         invokes the method called for validating the certificate.
+    ///     </para>
+    ///     <para>
+    ///         The default value is a delegate that invokes a method that
+    ///         only returns <c>true</c>.
+    ///     </para>
     /// </value>
-    public RemoteCertificateValidationCallback ServerCertificateValidationCallback {
-      get {
-        if (_serverCertValidationCallback == null)
-          _serverCertValidationCallback = defaultValidateServerCertificate;
+    public RemoteCertificateValidationCallback ServerCertificateValidationCallback
+    {
+        get
+        {
+            if (_serverCertValidationCallback == null)
+                _serverCertValidationCallback = defaultValidateServerCertificate;
 
-        return _serverCertValidationCallback;
-      }
+            return _serverCertValidationCallback;
+        }
 
-      set {
-        _serverCertValidationCallback = value;
-      }
+        set => _serverCertValidationCallback = value;
     }
 
     /// <summary>
-    /// Gets or sets the target host name.
+    ///     Gets or sets the target host server name.
     /// </summary>
     /// <value>
-    /// A <see cref="string"/> that represents the name of the server that
-    /// will share a secure connection with the client.
+    ///     <para>
+    ///         A <see cref="string" /> or <see langword="null" />
+    ///         if not specified.
+    ///     </para>
+    ///     <para>
+    ///         That string represents the name of the server that
+    ///         will share a secure connection with a client.
+    ///     </para>
     /// </value>
-    /// <exception cref="ArgumentException">
-    /// The value specified for a set operation is an empty string.
-    /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// The value specified for a set operation is <see langword="null"/>.
-    /// </exception>
-    public string TargetHost {
-      get {
-        return _targetHost;
-      }
-
-      set {
-        if (value == null)
-          throw new ArgumentNullException ("value");
-
-        if (value.Length == 0)
-          throw new ArgumentException ("An empty string.", "value");
-
-        _targetHost = value;
-      }
-    }
+    public string TargetHost { get; set; }
 
     #endregion
 
     #region Private Methods
 
-    private static X509Certificate defaultSelectClientCertificate (
-      object sender,
-      string targetHost,
-      X509CertificateCollection clientCertificates,
-      X509Certificate serverCertificate,
-      string[] acceptableIssuers
+    private static X509Certificate defaultSelectClientCertificate(
+        object sender,
+        string targetHost,
+        X509CertificateCollection clientCertificates,
+        X509Certificate serverCertificate,
+        string[] acceptableIssuers
     )
     {
-      return null;
+        return null;
     }
 
-    private static bool defaultValidateServerCertificate (
-      object sender,
-      X509Certificate certificate,
-      X509Chain chain,
-      SslPolicyErrors sslPolicyErrors
+    private static bool defaultValidateServerCertificate(
+        object sender,
+        X509Certificate certificate,
+        X509Chain chain,
+        SslPolicyErrors sslPolicyErrors
     )
     {
-      return true;
+        return true;
     }
 
     #endregion
-  }
 }

@@ -1,4 +1,5 @@
 #region License
+
 /*
  * HttpListenerAsyncResult.cs
  *
@@ -8,7 +9,7 @@
  * The MIT License
  *
  * Copyright (c) 2005 Ximian, Inc. (http://www.ximian.com)
- * Copyright (c) 2012-2024 sta.blockhead
+ * Copyright (c) 2012-2016 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,175 +29,160 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 #region Authors
+
 /*
  * Authors:
  * - Gonzalo Paniagua Javier <gonzalo@ximian.com>
  */
+
 #endregion
 
 #region Contributors
+
 /*
  * Contributors:
  * - Nicholas Devenish
  */
+
 #endregion
 
 using System;
 using System.Threading;
 
-namespace WebSocketSharp.Net
+#pragma warning disable CS8625
+namespace WebSocketSharp.Net;
+
+internal class HttpListenerAsyncResult : IAsyncResult
 {
-  internal class HttpListenerAsyncResult : IAsyncResult
-  {
-    #region Private Fields
-
-    private AsyncCallback       _callback;
-    private bool                _completed;
-    private bool                _completedSynchronously;
-    private HttpListenerContext _context;
-    private bool                _endCalled;
-    private Exception           _exception;
-    private Logger              _log;
-    private object              _state;
-    private object              _sync;
-    private ManualResetEvent    _waitHandle;
-
-    #endregion
-
     #region Internal Constructors
 
-    internal HttpListenerAsyncResult (
-      AsyncCallback callback,
-      object state,
-      Logger log
-    )
+    internal HttpListenerAsyncResult(AsyncCallback callback, object state)
     {
-      _callback = callback;
-      _state = state;
-      _log = log;
-
-      _sync = new object ();
-    }
-
-    #endregion
-
-    #region Internal Properties
-
-    internal HttpListenerContext Context
-    {
-      get {
-        if (_exception != null)
-          throw _exception;
-
-        return _context;
-      }
-    }
-
-    internal bool EndCalled {
-      get {
-        return _endCalled;
-      }
-
-      set {
-        _endCalled = value;
-      }
-    }
-
-    internal object SyncRoot {
-      get {
-        return _sync;
-      }
-    }
-
-    #endregion
-
-    #region Public Properties
-
-    public object AsyncState {
-      get {
-        return _state;
-      }
-    }
-
-    public WaitHandle AsyncWaitHandle {
-      get {
-        lock (_sync) {
-          if (_waitHandle == null)
-            _waitHandle = new ManualResetEvent (_completed);
-
-          return _waitHandle;
-        }
-      }
-    }
-
-    public bool CompletedSynchronously {
-      get {
-        return _completedSynchronously;
-      }
-    }
-
-    public bool IsCompleted {
-      get {
-        lock (_sync)
-          return _completed;
-      }
+        _callback = callback;
+        AsyncState = state;
+        _sync = new object();
     }
 
     #endregion
 
     #region Private Methods
 
-    private void complete ()
+    private static void complete(HttpListenerAsyncResult asyncResult)
     {
-      lock (_sync) {
-        _completed = true;
+        lock (asyncResult._sync)
+        {
+            asyncResult._completed = true;
 
-        if (_waitHandle != null)
-          _waitHandle.Set ();
-      }
+            var waitHandle = asyncResult._waitHandle;
+            if (waitHandle != null)
+                waitHandle.Set();
+        }
 
-      if (_callback == null)
-        return;
+        var callback = asyncResult._callback;
+        if (callback == null)
+            return;
 
-      ThreadPool.QueueUserWorkItem (
-        state => {
-          try {
-            _callback (this);
-          }
-          catch (Exception ex) {
-            _log.Error (ex.Message);
-            _log.Debug (ex.ToString ());
-          }
-        },
-        null
-      );
+        ThreadPool.QueueUserWorkItem(
+            state =>
+            {
+                try
+                {
+                    callback(asyncResult);
+                }
+                catch
+                {
+                }
+            },
+            null
+        );
+    }
+
+    #endregion
+
+    #region Private Fields
+
+    private readonly AsyncCallback _callback;
+    private bool _completed;
+    private HttpListenerContext _context;
+    private Exception _exception;
+    private readonly object _sync;
+    private ManualResetEvent _waitHandle;
+
+    #endregion
+
+    #region Internal Properties
+
+    internal bool EndCalled { get; set; }
+
+    internal bool InGet { get; set; }
+
+    #endregion
+
+    #region Public Properties
+
+    public object AsyncState { get; }
+
+    public WaitHandle AsyncWaitHandle
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _waitHandle ?? (_waitHandle = new ManualResetEvent(_completed));
+            }
+        }
+    }
+
+    public bool CompletedSynchronously { get; private set; }
+
+    public bool IsCompleted
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _completed;
+            }
+        }
     }
 
     #endregion
 
     #region Internal Methods
 
-    internal void Complete (Exception exception)
+    internal void Complete(Exception exception)
     {
-      _exception = exception;
+        _exception = InGet && exception is ObjectDisposedException
+            ? new HttpListenerException(995, "The listener is closed.")
+            : exception;
 
-      complete ();
+        complete(this);
     }
 
-    internal void Complete (
-      HttpListenerContext context,
-      bool completedSynchronously
-    )
+    internal void Complete(HttpListenerContext context)
     {
-      _context = context;
-      _completedSynchronously = completedSynchronously;
+        Complete(context, false);
+    }
 
-      complete ();
+    internal void Complete(HttpListenerContext context, bool syncCompleted)
+    {
+        _context = context;
+        CompletedSynchronously = syncCompleted;
+
+        complete(this);
+    }
+
+    internal HttpListenerContext GetContext()
+    {
+        if (_exception != null)
+            throw _exception;
+
+        return _context;
     }
 
     #endregion
-  }
 }

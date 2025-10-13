@@ -1,4 +1,5 @@
 #region License
+
 /*
  * RequestStream.cs
  *
@@ -8,7 +9,7 @@
  * The MIT License
  *
  * Copyright (c) 2005 Novell, Inc. (http://www.novell.com)
- * Copyright (c) 2012-2023 sta.blockhead
+ * Copyright (c) 2012-2015 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,327 +29,226 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 #region Authors
+
 /*
  * Authors:
  * - Gonzalo Paniagua Javier <gonzalo@novell.com>
  */
+
 #endregion
 
 using System;
 using System.IO;
 
-namespace WebSocketSharp.Net
+#pragma warning disable CS8625
+namespace WebSocketSharp.Net;
+
+internal class RequestStream : Stream
 {
-  internal class RequestStream : Stream
-  {
+    #region Private Methods
+
+    // Returns 0 if we can keep reading from the base stream,
+    // > 0 if we read something from the buffer,
+    // -1 if we had a content length set and we finished reading that many bytes.
+    private int fillFromBuffer(byte[] buffer, int offset, int count)
+    {
+        if (buffer == null)
+            throw new ArgumentNullException(nameof(buffer));
+
+        if (offset < 0)
+            throw new ArgumentOutOfRangeException(nameof(offset), "A negative value.");
+
+        if (count < 0)
+            throw new ArgumentOutOfRangeException(nameof(count), "A negative value.");
+
+        var len = buffer.Length;
+        if (offset + count > len)
+            throw new ArgumentException(
+                "The sum of 'offset' and 'count' is greater than 'buffer' length.");
+
+        if (_bodyLeft == 0)
+            return -1;
+
+        if (_count == 0 || count == 0)
+            return 0;
+
+        if (count > _count)
+            count = _count;
+
+        if (_bodyLeft > 0 && count > _bodyLeft)
+            count = (int)_bodyLeft;
+
+        Buffer.BlockCopy(_buffer, _offset, buffer, offset, count);
+        _offset += count;
+        _count -= count;
+        if (_bodyLeft > 0)
+            _bodyLeft -= count;
+
+        return count;
+    }
+
+    #endregion
+
     #region Private Fields
 
-    private long   _bodyLeft;
-    private int    _count;
-    private bool   _disposed;
-    private byte[] _initialBuffer;
-    private Stream _innerStream;
-    private int    _offset;
+    private long _bodyLeft;
+    private readonly byte[] _buffer;
+    private int _count;
+    private bool _disposed;
+    private int _offset;
+    private readonly Stream _stream;
 
     #endregion
 
     #region Internal Constructors
 
-    internal RequestStream (
-      Stream innerStream,
-      byte[] initialBuffer,
-      int offset,
-      int count,
-      long contentLength
-    )
+    internal RequestStream(Stream stream, byte[] buffer, int offset, int count)
+        : this(stream, buffer, offset, count, -1)
     {
-      _innerStream = innerStream;
-      _initialBuffer = initialBuffer;
-      _offset = offset;
-      _count = count;
-      _bodyLeft = contentLength;
     }
 
-    #endregion
-
-    #region Internal Properties
-
-    internal int Count {
-      get {
-        return _count;
-      }
-    }
-
-    internal byte[] InitialBuffer {
-      get {
-        return _initialBuffer;
-      }
-    }
-
-    internal string ObjectName {
-      get {
-        return GetType ().ToString ();
-      }
-    }
-
-    internal int Offset {
-      get {
-        return _offset;
-      }
+    internal RequestStream(
+        Stream stream, byte[] buffer, int offset, int count, long contentLength)
+    {
+        _stream = stream;
+        _buffer = buffer;
+        _offset = offset;
+        _count = count;
+        _bodyLeft = contentLength;
     }
 
     #endregion
 
     #region Public Properties
 
-    public override bool CanRead {
-      get {
-        return true;
-      }
-    }
+    public override bool CanRead => true;
 
-    public override bool CanSeek {
-      get {
-        return false;
-      }
-    }
+    public override bool CanSeek => false;
 
-    public override bool CanWrite {
-      get {
-        return false;
-      }
-    }
+    public override bool CanWrite => false;
 
-    public override long Length {
-      get {
-        throw new NotSupportedException ();
-      }
-    }
+    public override long Length => throw new NotSupportedException();
 
-    public override long Position {
-      get {
-        throw new NotSupportedException ();
-      }
-
-      set {
-        throw new NotSupportedException ();
-      }
-    }
-
-    #endregion
-
-    #region Private Methods
-
-    private int fillFromInitialBuffer (byte[] buffer, int offset, int count)
+    public override long Position
     {
-      // This method returns a int:
-      // - > 0 The number of bytes read from the initial buffer
-      // - 0   No more bytes read from the initial buffer
-      // - -1  No more content data
+        get => throw new NotSupportedException();
 
-      if (_bodyLeft == 0)
-        return -1;
-
-      if (_count == 0)
-        return 0;
-
-      if (count > _count)
-        count = _count;
-
-      if (_bodyLeft > 0 && _bodyLeft < count)
-        count = (int) _bodyLeft;
-
-      Buffer.BlockCopy (_initialBuffer, _offset, buffer, offset, count);
-
-      _offset += count;
-      _count -= count;
-
-      if (_bodyLeft > 0)
-        _bodyLeft -= count;
-
-      return count;
+        set => throw new NotSupportedException();
     }
 
     #endregion
 
     #region Public Methods
 
-    public override IAsyncResult BeginRead (
-      byte[] buffer,
-      int offset,
-      int count,
-      AsyncCallback callback,
-      object state
-    )
+    public override IAsyncResult BeginRead(
+        byte[] buffer, int offset, int count, AsyncCallback callback, object state)
     {
-      if (_disposed)
-        throw new ObjectDisposedException (ObjectName);
+        if (_disposed)
+            throw new ObjectDisposedException(GetType().ToString());
 
-      if (buffer == null)
-        throw new ArgumentNullException ("buffer");
+        var nread = fillFromBuffer(buffer, offset, count);
+        if (nread > 0 || nread == -1)
+        {
+            var ares = new HttpStreamAsyncResult(callback, state);
+            ares.Buffer = buffer;
+            ares.Offset = offset;
+            ares.Count = count;
+            ares.SyncRead = nread > 0 ? nread : 0;
+            ares.Complete();
 
-      if (offset < 0) {
-        var msg = "A negative value.";
+            return ares;
+        }
 
-        throw new ArgumentOutOfRangeException ("offset", msg);
-      }
+        // Avoid reading past the end of the request to allow for HTTP pipelining.
+        if (_bodyLeft >= 0 && count > _bodyLeft)
+            count = (int)_bodyLeft;
 
-      if (count < 0) {
-        var msg = "A negative value.";
-
-        throw new ArgumentOutOfRangeException ("count", msg);
-      }
-
-      var len = buffer.Length;
-
-      if (offset + count > len) {
-        var msg = "The sum of offset and count is greater than the length of buffer.";
-
-        throw new ArgumentException (msg);
-      }
-
-      if (count == 0)
-        return _innerStream.BeginRead (buffer, offset, 0, callback, state);
-
-      var nread = fillFromInitialBuffer (buffer, offset, count);
-
-      if (nread != 0) {
-        var ares = new HttpStreamAsyncResult (callback, state);
-
-        ares.Buffer = buffer;
-        ares.Offset = offset;
-        ares.Count = count;
-        ares.SyncRead = nread > 0 ? nread : 0;
-
-        ares.Complete ();
-
-        return ares;
-      }
-
-      if (_bodyLeft > 0 && _bodyLeft < count)
-        count = (int) _bodyLeft;
-
-      return _innerStream.BeginRead (buffer, offset, count, callback, state);
+        return _stream.BeginRead(buffer, offset, count, callback, state);
     }
 
-    public override IAsyncResult BeginWrite (
-      byte[] buffer,
-      int offset,
-      int count,
-      AsyncCallback callback,
-      object state
-    )
+    public override IAsyncResult BeginWrite(
+        byte[] buffer, int offset, int count, AsyncCallback callback, object state)
     {
-      throw new NotSupportedException ();
+        throw new NotSupportedException();
     }
 
-    public override void Close ()
+    public override void Close()
     {
-      _disposed = true;
+        _disposed = true;
     }
 
-    public override int EndRead (IAsyncResult asyncResult)
+    public override int EndRead(IAsyncResult asyncResult)
     {
-      if (_disposed)
-        throw new ObjectDisposedException (ObjectName);
+        if (_disposed)
+            throw new ObjectDisposedException(GetType().ToString());
 
-      if (asyncResult == null)
-        throw new ArgumentNullException ("asyncResult");
+        if (asyncResult == null)
+            throw new ArgumentNullException(nameof(asyncResult));
 
-      if (asyncResult is HttpStreamAsyncResult) {
-        var ares = (HttpStreamAsyncResult) asyncResult;
+        if (asyncResult is HttpStreamAsyncResult)
+        {
+            var ares = (HttpStreamAsyncResult)asyncResult;
+            if (!ares.IsCompleted)
+                ares.AsyncWaitHandle.WaitOne();
 
-        if (!ares.IsCompleted)
-          ares.AsyncWaitHandle.WaitOne ();
+            return ares.SyncRead;
+        }
 
-        return ares.SyncRead;
-      }
+        // Close on exception?
+        var nread = _stream.EndRead(asyncResult);
+        if (nread > 0 && _bodyLeft > 0)
+            _bodyLeft -= nread;
 
-      var nread = _innerStream.EndRead (asyncResult);
-
-      if (nread > 0 && _bodyLeft > 0)
-        _bodyLeft -= nread;
-
-      return nread;
-    }
-
-    public override void EndWrite (IAsyncResult asyncResult)
-    {
-      throw new NotSupportedException ();
-    }
-
-    public override void Flush ()
-    {
-    }
-
-    public override int Read (byte[] buffer, int offset, int count)
-    {
-      if (_disposed)
-        throw new ObjectDisposedException (ObjectName);
-
-      if (buffer == null)
-        throw new ArgumentNullException ("buffer");
-
-      if (offset < 0) {
-        var msg = "A negative value.";
-
-        throw new ArgumentOutOfRangeException ("offset", msg);
-      }
-
-      if (count < 0) {
-        var msg = "A negative value.";
-
-        throw new ArgumentOutOfRangeException ("count", msg);
-      }
-
-      var len = buffer.Length;
-
-      if (offset + count > len) {
-        var msg = "The sum of offset and count is greater than the length of buffer.";
-
-        throw new ArgumentException (msg);
-      }
-
-      if (count == 0)
-        return 0;
-
-      var nread = fillFromInitialBuffer (buffer, offset, count);
-
-      if (nread == -1)
-        return 0;
-
-      if (nread > 0)
         return nread;
-
-      if (_bodyLeft > 0 && _bodyLeft < count)
-        count = (int) _bodyLeft;
-
-      nread = _innerStream.Read (buffer, offset, count);
-
-      if (nread > 0 && _bodyLeft > 0)
-        _bodyLeft -= nread;
-
-      return nread;
     }
 
-    public override long Seek (long offset, SeekOrigin origin)
+    public override void EndWrite(IAsyncResult asyncResult)
     {
-      throw new NotSupportedException ();
+        throw new NotSupportedException();
     }
 
-    public override void SetLength (long value)
+    public override void Flush()
     {
-      throw new NotSupportedException ();
     }
 
-    public override void Write (byte[] buffer, int offset, int count)
+    public override int Read(byte[] buffer, int offset, int count)
     {
-      throw new NotSupportedException ();
+        if (_disposed)
+            throw new ObjectDisposedException(GetType().ToString());
+
+        // Call the fillFromBuffer method to check for buffer boundaries even when _bodyLeft is 0.
+        var nread = fillFromBuffer(buffer, offset, count);
+        if (nread == -1) // No more bytes available (Content-Length).
+            return 0;
+
+        if (nread > 0)
+            return nread;
+
+        nread = _stream.Read(buffer, offset, count);
+        if (nread > 0 && _bodyLeft > 0)
+            _bodyLeft -= nread;
+
+        return nread;
+    }
+
+    public override long Seek(long offset, SeekOrigin origin)
+    {
+        throw new NotSupportedException();
+    }
+
+    public override void SetLength(long value)
+    {
+        throw new NotSupportedException();
+    }
+
+    public override void Write(byte[] buffer, int offset, int count)
+    {
+        throw new NotSupportedException();
     }
 
     #endregion
-  }
 }

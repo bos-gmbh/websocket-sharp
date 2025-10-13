@@ -1,10 +1,11 @@
 #region License
+
 /*
  * WebSocketBehavior.cs
  *
  * The MIT License
  *
- * Copyright (c) 2012-2025 sta.blockhead
+ * Copyright (c) 2012-2016 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,716 +25,308 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 using System;
-using System.Collections.Specialized;
 using System.IO;
-using System.Security.Principal;
 using WebSocketSharp.Net;
 using WebSocketSharp.Net.WebSockets;
 
-namespace WebSocketSharp.Server
+#pragma warning disable CS8625
+namespace WebSocketSharp.Server;
+
+/// <summary>
+///     Exposes the methods and properties used to define the behavior of a WebSocket service
+///     provided by the <see cref="WebSocketServer" /> or <see cref="HttpServer" />.
+/// </summary>
+/// <remarks>
+///     The WebSocketBehavior class is an abstract class.
+/// </remarks>
+public abstract class WebSocketBehavior : IWebSocketSession
 {
-  /// <summary>
-  /// Exposes a set of methods and properties used to define the behavior of
-  /// a WebSocket service provided by the <see cref="WebSocketServer"/> or
-  /// <see cref="HttpServer"/> class.
-  /// </summary>
-  /// <remarks>
-  /// This class is an abstract class.
-  /// </remarks>
-  public abstract class WebSocketBehavior : IWebSocketSession
-  {
-    #region Private Fields
-
-    private WebSocketContext                                 _context;
-    private Action<CookieCollection, CookieCollection>       _cookiesResponder;
-    private bool                                             _emitOnPing;
-    private Func<string, bool>                               _hostValidator;
-    private string                                           _id;
-    private bool                                             _ignoreExtensions;
-    private bool                                             _noDelay;
-    private Func<string, bool>                               _originValidator;
-    private string                                           _protocol;
-    private bool                                             _registered;
-    private WebSocketSessionManager                          _sessions;
-    private DateTime                                         _startTime;
-    private Action<NameValueCollection, WebHeaderCollection> _userHeadersResponder;
-    private WebSocket                                        _websocket;
-
-    #endregion
-
     #region Protected Constructors
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="WebSocketBehavior"/> class.
+    ///     Initializes a new instance of the <see cref="WebSocketBehavior" /> class.
     /// </summary>
-    protected WebSocketBehavior ()
+    protected WebSocketBehavior()
     {
-      _startTime = DateTime.MaxValue;
-    }
-
-    #endregion
-
-    #region Protected Properties
-
-    /// <summary>
-    /// Gets the HTTP headers for a session.
-    /// </summary>
-    /// <value>
-    /// A <see cref="NameValueCollection"/> that contains the headers
-    /// included in the WebSocket handshake request.
-    /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The get operation is not available when the session has not started yet.
-    /// </exception>
-    protected NameValueCollection Headers {
-      get {
-        if (!_registered) {
-          var msg = "The session has not started yet.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        return _context.Headers;
-      }
-    }
-
-    /// <summary>
-    /// Gets a value indicating whether the communication is possible for
-    /// a session.
-    /// </summary>
-    /// <value>
-    /// <c>true</c> if the communication is possible; otherwise, <c>false</c>.
-    /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The get operation is not available when the session has not started yet.
-    /// </exception>
-    protected bool IsAlive {
-      get {
-        if (!_registered) {
-          var msg = "The session has not started yet.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        return _websocket.IsAlive;
-      }
-    }
-
-    /// <summary>
-    /// Gets the query string for a session.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="NameValueCollection"/> that contains the query
-    ///   parameters included in the WebSocket handshake request.
-    ///   </para>
-    ///   <para>
-    ///   An empty collection if not included.
-    ///   </para>
-    /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The get operation is not available when the session has not started yet.
-    /// </exception>
-    protected NameValueCollection QueryString {
-      get {
-        if (!_registered) {
-          var msg = "The session has not started yet.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        return _context.QueryString;
-      }
-    }
-
-    /// <summary>
-    /// Gets the current state of the WebSocket interface for a session.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   One of the <see cref="WebSocketState"/> enum values.
-    ///   </para>
-    ///   <para>
-    ///   It indicates the current state of the interface.
-    ///   </para>
-    /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The get operation is not available when the session has not started yet.
-    /// </exception>
-    protected WebSocketState ReadyState {
-      get {
-        if (!_registered) {
-          var msg = "The session has not started yet.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        return _websocket.ReadyState;
-      }
-    }
-
-    /// <summary>
-    /// Gets the management function for the sessions in the service.
-    /// </summary>
-    /// <value>
-    /// A <see cref="WebSocketSessionManager"/> that manages the sessions in
-    /// the service.
-    /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The get operation is not available when the session has not started yet.
-    /// </exception>
-    protected WebSocketSessionManager Sessions {
-      get {
-        if (!_registered) {
-          var msg = "The session has not started yet.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        return _sessions;
-      }
-    }
-
-    /// <summary>
-    /// Gets the client information for a session.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="IPrincipal"/> instance that represents identity,
-    ///   authentication, and security roles for the client.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if the client is not authenticated.
-    ///   </para>
-    /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The get operation is not available when the session has not started yet.
-    /// </exception>
-    protected IPrincipal User {
-      get {
-        if (!_registered) {
-          var msg = "The session has not started yet.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        return _context.User;
-      }
-    }
-
-    /// <summary>
-    /// Gets the client endpoint for a session.
-    /// </summary>
-    /// <value>
-    /// A <see cref="System.Net.IPEndPoint"/> that represents the client
-    /// IP address and port number.
-    /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The get operation is not available when the session has not started yet.
-    /// </exception>
-    protected System.Net.IPEndPoint UserEndPoint {
-      get {
-        if (!_registered) {
-          var msg = "The session has not started yet.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        return _context.UserEndPoint;
-      }
-    }
-
-    #endregion
-
-    #region Public Properties
-
-    /// <summary>
-    /// Gets or sets the delegate used to respond to the HTTP cookies.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="T:System.Action{CookieCollection, CookieCollection}"/>
-    ///   delegate.
-    ///   </para>
-    ///   <para>
-    ///   It represents the delegate called when the WebSocket interface
-    ///   for a session respond to the handshake request.
-    ///   </para>
-    ///   <para>
-    ///   1st <see cref="CookieCollection"/> parameter passed to the delegate
-    ///   contains the cookies included in the handshake request if any.
-    ///   </para>
-    ///   <para>
-    ///   2nd <see cref="CookieCollection"/> parameter passed to the delegate
-    ///   holds the cookies to send to the client.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if not necessary.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <see langword="null"/>.
-    ///   </para>
-    /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The set operation is not available when the session has already started.
-    /// </exception>
-    public Action<CookieCollection, CookieCollection> CookiesResponder {
-      get {
-        return _cookiesResponder;
-      }
-
-      set {
-        if (_registered) {
-          var msg = "The session has already started.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        _cookiesResponder = value;
-      }
-    }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the WebSocket interface for
-    /// a session emits the message event when it receives a ping.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   <c>true</c> if the interface emits the message event when it receives
-    ///   a ping; otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <c>false</c>.
-    ///   </para>
-    /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The set operation is not available when the session has already started.
-    /// </exception>
-    public bool EmitOnPing {
-      get {
-        return _emitOnPing;
-      }
-
-      set {
-        if (_registered) {
-          var msg = "The session has already started.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        _emitOnPing = value;
-      }
-    }
-
-    /// <summary>
-    /// Gets or sets the delegate used to validate the Host header.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="T:System.Func{string, bool}"/> delegate.
-    ///   </para>
-    ///   <para>
-    ///   It represents the delegate called when the WebSocket interface
-    ///   for a session validates the handshake request.
-    ///   </para>
-    ///   <para>
-    ///   The <see cref="string"/> parameter passed to the delegate is
-    ///   the value of the Host header.
-    ///   </para>
-    ///   <para>
-    ///   The method invoked by the delegate must return <c>true</c>
-    ///   if the header value is valid.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if not necessary.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <see langword="null"/>.
-    ///   </para>
-    /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The set operation is not available when the session has already started.
-    /// </exception>
-    public Func<string, bool> HostValidator {
-      get {
-        return _hostValidator;
-      }
-
-      set {
-        if (_registered) {
-          var msg = "The session has already started.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        _hostValidator = value;
-      }
-    }
-
-    /// <summary>
-    /// Gets the unique ID of a session.
-    /// </summary>
-    /// <value>
-    /// A <see cref="string"/> that represents the unique ID of the session.
-    /// </value>
-    public string ID {
-      get {
-        if (_id == null)
-          _id = WebSocketSessionManager.CreateID ();
-
-        return _id;
-      }
-    }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the WebSocket interface for
-    /// a session ignores the Sec-WebSocket-Extensions header.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   <c>true</c> if the interface ignores the extensions requested
-    ///   from the client; otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <c>false</c>.
-    ///   </para>
-    /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The set operation is not available when the session has already started.
-    /// </exception>
-    public bool IgnoreExtensions {
-      get {
-        return _ignoreExtensions;
-      }
-
-      set {
-        if (_registered) {
-          var msg = "The session has already started.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        _ignoreExtensions = value;
-      }
-    }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the underlying TCP socket of
-    /// the WebSocket interface for a session disables a delay when send or
-    /// receive buffer is not full.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   <c>true</c> if the delay is disabled; otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <c>false</c>.
-    ///   </para>
-    /// </value>
-    /// <seealso cref="System.Net.Sockets.Socket.NoDelay"/>
-    /// <exception cref="InvalidOperationException">
-    /// The set operation is not available when the session has already started.
-    /// </exception>
-    public bool NoDelay {
-      get {
-        return _noDelay;
-      }
-
-      set {
-        if (_registered) {
-          var msg = "The session has already started.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        _noDelay = value;
-      }
-    }
-
-    /// <summary>
-    /// Gets or sets the delegate used to validate the Origin header.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="T:System.Func{string, bool}"/> delegate.
-    ///   </para>
-    ///   <para>
-    ///   It represents the delegate called when the WebSocket interface
-    ///   for a session validates the handshake request.
-    ///   </para>
-    ///   <para>
-    ///   The <see cref="string"/> parameter passed to the delegate is
-    ///   the value of the Origin header or <see langword="null"/> if
-    ///   the header is not present.
-    ///   </para>
-    ///   <para>
-    ///   The method invoked by the delegate must return <c>true</c>
-    ///   if the header value is valid.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if not necessary.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <see langword="null"/>.
-    ///   </para>
-    /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The set operation is not available when the session has already started.
-    /// </exception>
-    public Func<string, bool> OriginValidator {
-      get {
-        return _originValidator;
-      }
-
-      set {
-        if (_registered) {
-          var msg = "The session has already started.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        _originValidator = value;
-      }
-    }
-
-    /// <summary>
-    /// Gets or sets the name of the WebSocket subprotocol for a session.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="string"/> that represents the name of the subprotocol.
-    ///   </para>
-    ///   <para>
-    ///   The value specified for a set operation must be a token defined in
-    ///   <see href="http://tools.ietf.org/html/rfc2616#section-2.2">
-    ///   RFC 2616</see>.
-    ///   </para>
-    ///   <para>
-    ///   The value is initialized if not requested.
-    ///   </para>
-    ///   <para>
-    ///   The default value is an empty string.
-    ///   </para>
-    /// </value>
-    /// <exception cref="ArgumentException">
-    /// The value specified for a set operation is not a token.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// The set operation is not available when the session has already started.
-    /// </exception>
-    public string Protocol {
-      get {
-        return _registered
-               ? _websocket.Protocol
-               : (_protocol ?? String.Empty);
-      }
-
-      set {
-        if (_registered) {
-          var msg = "The session has already started.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        if (value.IsNullOrEmpty ()) {
-          _protocol = null;
-
-          return;
-        }
-
-        if (!value.IsToken ()) {
-          var msg = "Not a token.";
-
-          throw new ArgumentException (msg, "value");
-        }
-
-        _protocol = value;
-      }
-    }
-
-    /// <summary>
-    /// Gets the time that a session has started.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="DateTime"/> that represents the time that the session
-    ///   has started.
-    ///   </para>
-    ///   <para>
-    ///   <see cref="DateTime.MaxValue"/> when the session has not started yet.
-    ///   </para>
-    /// </value>
-    public DateTime StartTime {
-      get {
-        return _startTime;
-      }
-    }
-
-    /// <summary>
-    /// Gets or sets the delegate used to respond to the user headers.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="T:System.Action{NameValueCollection, WebHeaderCollection}"/>
-    ///   delegate.
-    ///   </para>
-    ///   <para>
-    ///   It represents the delegate called when the WebSocket interface
-    ///   for a session respond to the handshake request.
-    ///   </para>
-    ///   <para>
-    ///   1st <see cref="NameValueCollection"/> parameter passed to the delegate
-    ///   contains the HTTP headers included in the handshake request.
-    ///   </para>
-    ///   <para>
-    ///   2nd <see cref="WebHeaderCollection"/> parameter passed to the delegate
-    ///   holds the user headers to send to the client.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if not necessary.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <see langword="null"/>.
-    ///   </para>
-    /// </value>
-    /// <exception cref="InvalidOperationException">
-    /// The set operation is not available when the session has already started.
-    /// </exception>
-    public Action<NameValueCollection, WebHeaderCollection> UserHeadersResponder {
-      get {
-        return _userHeadersResponder;
-      }
-
-      set {
-        if (_registered) {
-          var msg = "The session has already started.";
-
-          throw new InvalidOperationException (msg);
-        }
-
-        _userHeadersResponder = value;
-      }
-    }
-
-    #endregion
-
-    #region Private Methods
-
-    private string checkHandshakeRequest (WebSocketContext context)
-    {
-      if (_hostValidator != null) {
-        if (!_hostValidator (context.Host)) {
-          var msg = "The Host header is invalid.";
-
-          return msg;
-        }
-      }
-
-      if (_originValidator != null) {
-        if (!_originValidator (context.Origin)) {
-          var msg = "The Origin header is non-existent or invalid.";
-
-          return msg;
-        }
-      }
-
-      return null;
-    }
-
-    private void onClose (object sender, CloseEventArgs e)
-    {
-      if (!_registered)
-        return;
-
-      _sessions.Remove (_id);
-
-      OnClose (e);
-    }
-
-    private void onError (object sender, ErrorEventArgs e)
-    {
-      OnError (e);
-    }
-
-    private void onMessage (object sender, MessageEventArgs e)
-    {
-      OnMessage (e);
-    }
-
-    private void onOpen (object sender, EventArgs e)
-    {
-      _registered = _sessions.Add (this);
-
-      if (!_registered) {
-        _websocket.Close (CloseStatusCode.Away);
-
-        return;
-      }
-
-      _startTime = DateTime.Now;
-
-      OnOpen ();
-    }
-
-    private void respondToHandshakeRequest (WebSocketContext context)
-    {
-      if (_cookiesResponder != null) {
-        var reqCookies = context.CookieCollection;
-        var resCookies = context.WebSocket.Cookies;
-
-        _cookiesResponder (reqCookies, resCookies);
-      }
-
-      if (_userHeadersResponder != null) {
-        var reqHeaders = context.Headers;
-        var userHeaders = context.WebSocket.UserHeaders;
-
-        _userHeadersResponder (reqHeaders, userHeaders);
-      }
+        StartTime = DateTime.MaxValue;
     }
 
     #endregion
 
     #region Internal Methods
 
-    internal void Start (
-      WebSocketContext context,
-      WebSocketSessionManager sessions
-    )
+    internal void Start(WebSocketContext context, WebSocketSessionManager sessions)
     {
-      _context = context;
-      _sessions = sessions;
+        if (_websocket != null)
+        {
+            _websocket.Log.Error("A session instance cannot be reused.");
+            context.WebSocket.Close(HttpStatusCode.ServiceUnavailable);
 
-      _websocket = context.WebSocket;
-      _websocket.CustomHandshakeRequestChecker = checkHandshakeRequest;
-      _websocket.CustomHandshakeRequestResponder = respondToHandshakeRequest;
+            return;
+        }
 
-      if (_emitOnPing)
-        _websocket.EmitOnPing = true;
+        Context = context;
+        Sessions = sessions;
 
-      if (_ignoreExtensions)
-        _websocket.IgnoreExtensions = true;
-
-      if (_noDelay)
-        _websocket.NoDelay = true;
-
-      if (_protocol != null)
+        _websocket = context.WebSocket;
+        _websocket.CustomHandshakeRequestChecker = checkHandshakeRequest;
+        _websocket.EmitOnPing = _emitOnPing;
+        _websocket.IgnoreExtensions = IgnoreExtensions;
         _websocket.Protocol = _protocol;
 
-      var waitTime = sessions.WaitTime;
+        var waitTime = sessions.WaitTime;
+        if (waitTime != _websocket.WaitTime)
+            _websocket.WaitTime = waitTime;
 
-      if (waitTime != _websocket.WaitTime)
-        _websocket.WaitTime = waitTime;
+        _websocket.OnOpen += onOpen;
+        _websocket.OnMessage += onMessage;
+        _websocket.OnError += onError;
+        _websocket.OnClose += onClose;
 
-      _websocket.OnClose += onClose;
-      _websocket.OnError += onError;
-      _websocket.OnMessage += onMessage;
-      _websocket.OnOpen += onOpen;
+        _websocket.InternalAccept();
+    }
 
-      _websocket.Accept ();
+    #endregion
+
+    #region Private Fields
+
+    private bool _emitOnPing;
+    private string _protocol;
+    private WebSocket _websocket;
+
+    #endregion
+
+    #region Protected Properties
+
+    /// <summary>
+    ///     Gets the logging functions.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="Logger" /> that provides the logging functions,
+    ///     or <see langword="null" /> if the WebSocket connection isn't established.
+    /// </value>
+    protected Logger Log => _websocket != null ? _websocket.Log : null;
+
+    /// <summary>
+    ///     Gets the access to the sessions in the WebSocket service.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="WebSocketSessionManager" /> that provides the access to the sessions,
+    ///     or <see langword="null" /> if the WebSocket connection isn't established.
+    /// </value>
+    protected WebSocketSessionManager Sessions { get; private set; }
+
+    #endregion
+
+    #region Public Properties
+
+    /// <summary>
+    ///     Gets the information in a handshake request to the WebSocket service.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="WebSocketContext" /> instance that provides the access to the handshake request,
+    ///     or <see langword="null" /> if the WebSocket connection isn't established.
+    /// </value>
+    public WebSocketContext Context { get; private set; }
+
+    /// <summary>
+    ///     Gets or sets the delegate called to validate the HTTP cookies included in
+    ///     a handshake request to the WebSocket service.
+    /// </summary>
+    /// <remarks>
+    ///     This delegate is called when the <see cref="WebSocket" /> used in a session validates
+    ///     the handshake request.
+    /// </remarks>
+    /// <value>
+    ///     <para>
+    ///         A <c>Func&lt;CookieCollection, CookieCollection, bool&gt;</c> delegate that references
+    ///         the method(s) used to validate the cookies.
+    ///     </para>
+    ///     <para>
+    ///         1st <see cref="CookieCollection" /> parameter passed to this delegate contains
+    ///         the cookies to validate if any.
+    ///     </para>
+    ///     <para>
+    ///         2nd <see cref="CookieCollection" /> parameter passed to this delegate receives
+    ///         the cookies to send to the client.
+    ///     </para>
+    ///     <para>
+    ///         This delegate should return <c>true</c> if the cookies are valid.
+    ///     </para>
+    ///     <para>
+    ///         The default value is <see langword="null" />, and it does nothing to validate.
+    ///     </para>
+    /// </value>
+    public Func<CookieCollection, CookieCollection, bool> CookiesValidator { get; set; }
+
+    /// <summary>
+    ///     Gets or sets a value indicating whether the <see cref="WebSocket" /> used in a session emits
+    ///     a <see cref="WebSocket.OnMessage" /> event when receives a Ping.
+    /// </summary>
+    /// <value>
+    ///     <c>true</c> if the <see cref="WebSocket" /> emits a <see cref="WebSocket.OnMessage" /> event
+    ///     when receives a Ping; otherwise, <c>false</c>. The default value is <c>false</c>.
+    /// </value>
+    public bool EmitOnPing
+    {
+        get => _websocket != null ? _websocket.EmitOnPing : _emitOnPing;
+
+        set
+        {
+            if (_websocket != null)
+            {
+                _websocket.EmitOnPing = value;
+                return;
+            }
+
+            _emitOnPing = value;
+        }
+    }
+
+    /// <summary>
+    ///     Gets the unique ID of a session.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="string" /> that represents the unique ID of the session,
+    ///     or <see langword="null" /> if the WebSocket connection isn't established.
+    /// </value>
+    public string ID { get; private set; }
+
+    /// <summary>
+    ///     Gets or sets a value indicating whether the WebSocket service ignores
+    ///     the Sec-WebSocket-Extensions header included in a handshake request.
+    /// </summary>
+    /// <value>
+    ///     <c>true</c> if the WebSocket service ignores the extensions requested from
+    ///     a client; otherwise, <c>false</c>. The default value is <c>false</c>.
+    /// </value>
+    public bool IgnoreExtensions { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the delegate called to validate the Origin header included in
+    ///     a handshake request to the WebSocket service.
+    /// </summary>
+    /// <remarks>
+    ///     This delegate is called when the <see cref="WebSocket" /> used in a session validates
+    ///     the handshake request.
+    /// </remarks>
+    /// <value>
+    ///     <para>
+    ///         A <c>Func&lt;string, bool&gt;</c> delegate that references the method(s) used to
+    ///         validate the origin header.
+    ///     </para>
+    ///     <para>
+    ///         <see cref="string" /> parameter passed to this delegate represents the value of
+    ///         the origin header to validate if any.
+    ///     </para>
+    ///     <para>
+    ///         This delegate should return <c>true</c> if the origin header is valid.
+    ///     </para>
+    ///     <para>
+    ///         The default value is <see langword="null" />, and it does nothing to validate.
+    ///     </para>
+    /// </value>
+    public Func<string, bool> OriginValidator { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the WebSocket subprotocol used in the WebSocket service.
+    /// </summary>
+    /// <remarks>
+    ///     Set operation of this property is available before the WebSocket connection has
+    ///     been established.
+    /// </remarks>
+    /// <value>
+    ///     <para>
+    ///         A <see cref="string" /> that represents the subprotocol if any.
+    ///         The default value is <see cref="String.Empty" />.
+    ///     </para>
+    ///     <para>
+    ///         The value to set must be a token defined in
+    ///         <see href="http://tools.ietf.org/html/rfc2616#section-2.2">RFC 2616</see>.
+    ///     </para>
+    /// </value>
+    public string Protocol
+    {
+        get => _websocket != null ? _websocket.Protocol : _protocol ?? string.Empty;
+
+        set
+        {
+            if (State != WebSocketState.Connecting)
+                return;
+
+            if (value != null && (value.Length == 0 || !value.IsToken()))
+                return;
+
+            _protocol = value;
+        }
+    }
+
+    /// <summary>
+    ///     Gets the time that a session has started.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="DateTime" /> that represents the time that the session has started,
+    ///     or <see cref="DateTime.MaxValue" /> if the WebSocket connection isn't established.
+    /// </value>
+    public DateTime StartTime { get; private set; }
+
+    /// <summary>
+    ///     Gets the state of the <see cref="WebSocket" /> used in a session.
+    /// </summary>
+    /// <value>
+    ///     One of the <see cref="WebSocketState" /> enum values, indicates the state of
+    ///     the <see cref="WebSocket" />.
+    /// </value>
+    public WebSocketState State => _websocket != null ? _websocket.ReadyState : WebSocketState.Connecting;
+
+    #endregion
+
+    #region Private Methods
+
+    private string checkHandshakeRequest(WebSocketContext context)
+    {
+        return OriginValidator != null && !OriginValidator(context.Origin)
+            ? "Includes no Origin header, or it has an invalid value."
+            : CookiesValidator != null
+              && !CookiesValidator(context.CookieCollection, context.WebSocket.CookieCollection)
+                ? "Includes no cookie, or an invalid cookie exists."
+                : null;
+    }
+
+    private void onClose(object sender, CloseEventArgs e)
+    {
+        if (ID == null)
+            return;
+
+        Sessions.Remove(ID);
+        OnClose(e);
+    }
+
+    private void onError(object sender, ErrorEventArgs e)
+    {
+        OnError(e);
+    }
+
+    private void onMessage(object sender, MessageEventArgs e)
+    {
+        OnMessage(e);
+    }
+
+    private void onOpen(object sender, EventArgs e)
+    {
+        ID = Sessions.Add(this);
+        if (ID == null)
+        {
+            _websocket.Close(CloseStatusCode.Away);
+            return;
+        }
+
+        StartTime = DateTime.Now;
+        OnOpen();
     }
 
     #endregion
@@ -741,879 +334,214 @@ namespace WebSocketSharp.Server
     #region Protected Methods
 
     /// <summary>
-    /// Closes the WebSocket connection for a session.
+    ///     Calls the <see cref="OnError" /> method with the specified <paramref name="message" /> and
+    ///     <paramref name="exception" />.
     /// </summary>
     /// <remarks>
-    /// This method does nothing when the current state of the WebSocket
-    /// interface is Closing or Closed.
+    ///     This method doesn't call the <see cref="OnError" /> method if <paramref name="message" /> is
+    ///     <see langword="null" /> or empty.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">
-    /// The Close method is not available when the session has not started yet.
-    /// </exception>
-    protected void Close ()
-    {
-      if (_websocket == null) {
-        var msg = "The Close method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.Close ();
-    }
-
-    /// <summary>
-    /// Closes the WebSocket connection for a session with the specified
-    /// status code and reason.
-    /// </summary>
-    /// <remarks>
-    /// This method does nothing when the current state of the WebSocket
-    /// interface is Closing or Closed.
-    /// </remarks>
-    /// <param name="code">
-    ///   <para>
-    ///   A <see cref="ushort"/> that specifies the status code indicating
-    ///   the reason for the close.
-    ///   </para>
-    ///   <para>
-    ///   The status codes are defined in
-    ///   <see href="http://tools.ietf.org/html/rfc6455#section-7.4">
-    ///   Section 7.4</see> of RFC 6455.
-    ///   </para>
-    /// </param>
-    /// <param name="reason">
-    ///   <para>
-    ///   A <see cref="string"/> that specifies the reason for the close.
-    ///   </para>
-    ///   <para>
-    ///   Its size must be 123 bytes or less in UTF-8.
-    ///   </para>
-    /// </param>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   <paramref name="code"/> is 1010 (mandatory extension).
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="code"/> is 1005 (no status) and
-    ///   <paramref name="reason"/> is specified.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="reason"/> could not be UTF-8-encoded.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="ArgumentOutOfRangeException">
-    ///   <para>
-    ///   <paramref name="code"/> is less than 1000 or greater than 4999.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The size of <paramref name="reason"/> is greater than 123 bytes.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// The Close method is not available when the session has not started yet.
-    /// </exception>
-    protected void Close (ushort code, string reason)
-    {
-      if (_websocket == null) {
-        var msg = "The Close method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.Close (code, reason);
-    }
-
-    /// <summary>
-    /// Closes the WebSocket connection for a session with the specified
-    /// status code and reason.
-    /// </summary>
-    /// <remarks>
-    /// This method does nothing when the current state of the WebSocket
-    /// interface is Closing or Closed.
-    /// </remarks>
-    /// <param name="code">
-    ///   <para>
-    ///   One of the <see cref="CloseStatusCode"/> enum values.
-    ///   </para>
-    ///   <para>
-    ///   It specifies the status code indicating the reason for the close.
-    ///   </para>
-    /// </param>
-    /// <param name="reason">
-    ///   <para>
-    ///   A <see cref="string"/> that specifies the reason for the close.
-    ///   </para>
-    ///   <para>
-    ///   Its size must be 123 bytes or less in UTF-8.
-    ///   </para>
-    /// </param>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   <paramref name="code"/> is an undefined enum value.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="code"/> is <see cref="CloseStatusCode.MandatoryExtension"/>.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="code"/> is <see cref="CloseStatusCode.NoStatus"/> and
-    ///   <paramref name="reason"/> is specified.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="reason"/> could not be UTF-8-encoded.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="ArgumentOutOfRangeException">
-    /// The size of <paramref name="reason"/> is greater than 123 bytes.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// The Close method is not available when the session has not started yet.
-    /// </exception>
-    protected void Close (CloseStatusCode code, string reason)
-    {
-      if (_websocket == null) {
-        var msg = "The Close method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.Close (code, reason);
-    }
-
-    /// <summary>
-    /// Closes the WebSocket connection for a session asynchronously.
-    /// </summary>
-    /// <remarks>
-    ///   <para>
-    ///   This method does not wait for the close to be complete.
-    ///   </para>
-    ///   <para>
-    ///   This method does nothing when the current state of the WebSocket
-    ///   interface is Closing or Closed.
-    ///   </para>
-    /// </remarks>
-    /// <exception cref="InvalidOperationException">
-    /// The CloseAsync method is not available when the session has not
-    /// started yet.
-    /// </exception>
-    protected void CloseAsync ()
-    {
-      if (_websocket == null) {
-        var msg = "The CloseAsync method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.CloseAsync ();
-    }
-
-    /// <summary>
-    /// Closes the WebSocket connection for a session asynchronously with
-    /// the specified status code and reason.
-    /// </summary>
-    /// <remarks>
-    ///   <para>
-    ///   This method does not wait for the close to be complete.
-    ///   </para>
-    ///   <para>
-    ///   This method does nothing when the current state of the WebSocket
-    ///   interface is Closing or Closed.
-    ///   </para>
-    /// </remarks>
-    /// <param name="code">
-    ///   <para>
-    ///   A <see cref="ushort"/> that specifies the status code indicating
-    ///   the reason for the close.
-    ///   </para>
-    ///   <para>
-    ///   The status codes are defined in
-    ///   <see href="http://tools.ietf.org/html/rfc6455#section-7.4">
-    ///   Section 7.4</see> of RFC 6455.
-    ///   </para>
-    /// </param>
-    /// <param name="reason">
-    ///   <para>
-    ///   A <see cref="string"/> that specifies the reason for the close.
-    ///   </para>
-    ///   <para>
-    ///   Its size must be 123 bytes or less in UTF-8.
-    ///   </para>
-    /// </param>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   <paramref name="code"/> is 1010 (mandatory extension).
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="code"/> is 1005 (no status) and
-    ///   <paramref name="reason"/> is specified.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="reason"/> could not be UTF-8-encoded.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="ArgumentOutOfRangeException">
-    ///   <para>
-    ///   <paramref name="code"/> is less than 1000 or greater than 4999.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The size of <paramref name="reason"/> is greater than 123 bytes.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// The CloseAsync method is not available when the session has not
-    /// started yet.
-    /// </exception>
-    protected void CloseAsync (ushort code, string reason)
-    {
-      if (_websocket == null) {
-        var msg = "The CloseAsync method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.CloseAsync (code, reason);
-    }
-
-    /// <summary>
-    /// Closes the WebSocket connection for a session asynchronously with
-    /// the specified status code and reason.
-    /// </summary>
-    /// <remarks>
-    ///   <para>
-    ///   This method does not wait for the close to be complete.
-    ///   </para>
-    ///   <para>
-    ///   This method does nothing when the current state of the WebSocket
-    ///   interface is Closing or Closed.
-    ///   </para>
-    /// </remarks>
-    /// <param name="code">
-    ///   <para>
-    ///   One of the <see cref="CloseStatusCode"/> enum values.
-    ///   </para>
-    ///   <para>
-    ///   It specifies the status code indicating the reason for the close.
-    ///   </para>
-    /// </param>
-    /// <param name="reason">
-    ///   <para>
-    ///   A <see cref="string"/> that specifies the reason for the close.
-    ///   </para>
-    ///   <para>
-    ///   Its size must be 123 bytes or less in UTF-8.
-    ///   </para>
-    /// </param>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   <paramref name="code"/> is an undefined enum value.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="code"/> is <see cref="CloseStatusCode.MandatoryExtension"/>.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="code"/> is <see cref="CloseStatusCode.NoStatus"/> and
-    ///   <paramref name="reason"/> is specified.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="reason"/> could not be UTF-8-encoded.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="ArgumentOutOfRangeException">
-    /// The size of <paramref name="reason"/> is greater than 123 bytes.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// The CloseAsync method is not available when the session has not
-    /// started yet.
-    /// </exception>
-    protected void CloseAsync (CloseStatusCode code, string reason)
-    {
-      if (_websocket == null) {
-        var msg = "The CloseAsync method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.CloseAsync (code, reason);
-    }
-
-    /// <summary>
-    /// Called when the WebSocket connection for a session has been closed.
-    /// </summary>
-    /// <param name="e">
-    /// A <see cref="CloseEventArgs"/> that represents the event data passed
-    /// from a <see cref="WebSocket.OnClose"/> event.
-    /// </param>
-    protected virtual void OnClose (CloseEventArgs e)
-    {
-    }
-
-    /// <summary>
-    /// Called when the WebSocket interface for a session gets an error.
-    /// </summary>
-    /// <param name="e">
-    /// A <see cref="ErrorEventArgs"/> that represents the event data passed
-    /// from a <see cref="WebSocket.OnError"/> event.
-    /// </param>
-    protected virtual void OnError (ErrorEventArgs e)
-    {
-    }
-
-    /// <summary>
-    /// Called when the WebSocket interface for a session receives a message.
-    /// </summary>
-    /// <param name="e">
-    /// A <see cref="MessageEventArgs"/> that represents the event data passed
-    /// from a <see cref="WebSocket.OnMessage"/> event.
-    /// </param>
-    protected virtual void OnMessage (MessageEventArgs e)
-    {
-    }
-
-    /// <summary>
-    /// Called when the WebSocket connection for a session has been established.
-    /// </summary>
-    protected virtual void OnOpen ()
-    {
-    }
-
-    /// <summary>
-    /// Sends a ping to the client for a session.
-    /// </summary>
-    /// <returns>
-    /// <c>true</c> if the send has successfully done and a pong has been
-    /// received within a time; otherwise, <c>false</c>.
-    /// </returns>
-    /// <exception cref="InvalidOperationException">
-    /// The Ping method is not available when the session has not started yet.
-    /// </exception>
-    protected bool Ping ()
-    {
-      if (_websocket == null) {
-        var msg = "The Ping method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      return _websocket.Ping ();
-    }
-
-    /// <summary>
-    /// Sends a ping with the specified message to the client for a session.
-    /// </summary>
-    /// <returns>
-    /// <c>true</c> if the send has successfully done and a pong has been
-    /// received within a time; otherwise, <c>false</c>.
-    /// </returns>
     /// <param name="message">
-    ///   <para>
-    ///   A <see cref="string"/> that specifies the message to send.
-    ///   </para>
-    ///   <para>
-    ///   Its size must be 125 bytes or less in UTF-8.
-    ///   </para>
+    ///     A <see cref="string" /> that represents the error message.
     /// </param>
-    /// <exception cref="ArgumentException">
-    /// <paramref name="message"/> could not be UTF-8-encoded.
-    /// </exception>
-    /// <exception cref="ArgumentOutOfRangeException">
-    /// The size of <paramref name="message"/> is greater than 125 bytes.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// The Ping method is not available when the session has not started yet.
-    /// </exception>
-    protected bool Ping (string message)
+    /// <param name="exception">
+    ///     An <see cref="Exception" /> instance that represents the cause of the error if any.
+    /// </param>
+    protected void Error(string message, Exception exception)
     {
-      if (_websocket == null) {
-        var msg = "The Ping method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      return _websocket.Ping (message);
+        if (message != null && message.Length > 0)
+            OnError(new ErrorEventArgs(message, exception));
     }
 
     /// <summary>
-    /// Sends the specified data to the client for a session.
+    ///     Called when the WebSocket connection used in a session has been closed.
     /// </summary>
-    /// <param name="data">
-    /// An array of <see cref="byte"/> that specifies the binary data to send.
+    /// <param name="e">
+    ///     A <see cref="CloseEventArgs" /> that represents the event data passed to
+    ///     a <see cref="WebSocket.OnClose" /> event.
     /// </param>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="data"/> is <see langword="null"/>.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    ///   <para>
-    ///   The Send method is not available when the session has not
-    ///   started yet.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The Send method is not available when the current state of
-    ///   the WebSocket interface is not Open.
-    ///   </para>
-    /// </exception>
-    protected void Send (byte[] data)
+    protected virtual void OnClose(CloseEventArgs e)
     {
-      if (_websocket == null) {
-        var msg = "The Send method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.Send (data);
     }
 
     /// <summary>
-    /// Sends the specified file to the client for a session.
+    ///     Called when the <see cref="WebSocket" /> used in a session gets an error.
     /// </summary>
-    /// <param name="fileInfo">
-    ///   <para>
-    ///   A <see cref="FileInfo"/> that specifies the file to send.
-    ///   </para>
-    ///   <para>
-    ///   The file is sent as the binary data.
-    ///   </para>
+    /// <param name="e">
+    ///     A <see cref="ErrorEventArgs" /> that represents the event data passed to
+    ///     a <see cref="WebSocket.OnError" /> event.
     /// </param>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   The file does not exist.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The file could not be opened.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="fileInfo"/> is <see langword="null"/>.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    ///   <para>
-    ///   The Send method is not available when the session has not
-    ///   started yet.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The Send method is not available when the current state of
-    ///   the WebSocket interface is not Open.
-    ///   </para>
-    /// </exception>
-    protected void Send (FileInfo fileInfo)
+    protected virtual void OnError(ErrorEventArgs e)
     {
-      if (_websocket == null) {
-        var msg = "The Send method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.Send (fileInfo);
     }
 
     /// <summary>
-    /// Sends the specified data to the client for a session.
+    ///     Called when the <see cref="WebSocket" /> used in a session receives a message.
     /// </summary>
-    /// <param name="data">
-    /// A <see cref="string"/> that specifies the text data to send.
+    /// <param name="e">
+    ///     A <see cref="MessageEventArgs" /> that represents the event data passed to
+    ///     a <see cref="WebSocket.OnMessage" /> event.
     /// </param>
-    /// <exception cref="ArgumentException">
-    /// <paramref name="data"/> could not be UTF-8-encoded.
-    /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="data"/> is <see langword="null"/>.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    ///   <para>
-    ///   The Send method is not available when the session has not
-    ///   started yet.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The Send method is not available when the current state of
-    ///   the WebSocket interface is not Open.
-    ///   </para>
-    /// </exception>
-    protected void Send (string data)
+    protected virtual void OnMessage(MessageEventArgs e)
     {
-      if (_websocket == null) {
-        var msg = "The Send method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.Send (data);
     }
 
     /// <summary>
-    /// Sends the data from the specified stream instance to the client for
-    /// a session.
+    ///     Called when the WebSocket connection used in a session has been established.
     /// </summary>
-    /// <param name="stream">
-    ///   <para>
-    ///   A <see cref="Stream"/> instance from which to read the data to send.
-    ///   </para>
-    ///   <para>
-    ///   The data is sent as the binary data.
-    ///   </para>
-    /// </param>
-    /// <param name="length">
-    /// An <see cref="int"/> that specifies the number of bytes to send.
-    /// </param>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   <paramref name="stream"/> cannot be read.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="length"/> is less than 1.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   No data could be read from <paramref name="stream"/>.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="stream"/> is <see langword="null"/>.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    ///   <para>
-    ///   The Send method is not available when the session has not
-    ///   started yet.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The Send method is not available when the current state of
-    ///   the WebSocket interface is not Open.
-    ///   </para>
-    /// </exception>
-    protected void Send (Stream stream, int length)
+    protected virtual void OnOpen()
     {
-      if (_websocket == null) {
-        var msg = "The Send method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.Send (stream, length);
     }
 
     /// <summary>
-    /// Sends the specified data to the client for a session asynchronously.
+    ///     Sends binary <paramref name="data" /> to the client on a session.
     /// </summary>
     /// <remarks>
-    /// This method does not wait for the send to be complete.
+    ///     This method is available after the WebSocket connection has been established.
     /// </remarks>
     /// <param name="data">
-    /// An array of <see cref="byte"/> that specifies the binary data to send.
+    ///     An array of <see cref="byte" /> that represents the binary data to send.
     /// </param>
-    /// <param name="completed">
-    ///   <para>
-    ///   An <see cref="T:System.Action{bool}"/> delegate.
-    ///   </para>
-    ///   <para>
-    ///   It specifies the delegate called when the send is complete.
-    ///   </para>
-    ///   <para>
-    ///   The <see cref="bool"/> parameter passed to the delegate is <c>true</c>
-    ///   if the send has successfully done; otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if not necessary.
-    ///   </para>
-    /// </param>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="data"/> is <see langword="null"/>.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    ///   <para>
-    ///   The SendAsync method is not available when the session has not
-    ///   started yet.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The SendAsync method is not available when the current state of
-    ///   the WebSocket interface is not Open.
-    ///   </para>
-    /// </exception>
-    protected void SendAsync (byte[] data, Action<bool> completed)
+    protected void Send(byte[] data)
     {
-      if (_websocket == null) {
-        var msg = "The SendAsync method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.SendAsync (data, completed);
+        if (_websocket != null)
+            _websocket.Send(data);
     }
 
     /// <summary>
-    /// Sends the specified file to the client for a session asynchronously.
+    ///     Sends the specified <paramref name="file" /> as binary data to the client on a session.
     /// </summary>
     /// <remarks>
-    /// This method does not wait for the send to be complete.
+    ///     This method is available after the WebSocket connection has been established.
     /// </remarks>
-    /// <param name="fileInfo">
-    ///   <para>
-    ///   A <see cref="FileInfo"/> that specifies the file to send.
-    ///   </para>
-    ///   <para>
-    ///   The file is sent as the binary data.
-    ///   </para>
+    /// <param name="file">
+    ///     A <see cref="FileInfo" /> that represents the file to send.
     /// </param>
-    /// <param name="completed">
-    ///   <para>
-    ///   An <see cref="T:System.Action{bool}"/> delegate.
-    ///   </para>
-    ///   <para>
-    ///   It specifies the delegate called when the send is complete.
-    ///   </para>
-    ///   <para>
-    ///   The <see cref="bool"/> parameter passed to the delegate is <c>true</c>
-    ///   if the send has successfully done; otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if not necessary.
-    ///   </para>
-    /// </param>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   The file does not exist.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The file could not be opened.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="fileInfo"/> is <see langword="null"/>.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    ///   <para>
-    ///   The SendAsync method is not available when the session has not
-    ///   started yet.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The SendAsync method is not available when the current state of
-    ///   the WebSocket interface is not Open.
-    ///   </para>
-    /// </exception>
-    protected void SendAsync (FileInfo fileInfo, Action<bool> completed)
+    protected void Send(FileInfo file)
     {
-      if (_websocket == null) {
-        var msg = "The SendAsync method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.SendAsync (fileInfo, completed);
+        if (_websocket != null)
+            _websocket.Send(file);
     }
 
     /// <summary>
-    /// Sends the specified data to the client for a session asynchronously.
+    ///     Sends text <paramref name="data" /> to the client on a session.
     /// </summary>
     /// <remarks>
-    /// This method does not wait for the send to be complete.
+    ///     This method is available after the WebSocket connection has been established.
     /// </remarks>
     /// <param name="data">
-    /// A <see cref="string"/> that specifies the text data to send.
+    ///     A <see cref="string" /> that represents the text data to send.
     /// </param>
-    /// <param name="completed">
-    ///   <para>
-    ///   An <see cref="T:System.Action{bool}"/> delegate.
-    ///   </para>
-    ///   <para>
-    ///   It specifies the delegate called when the send is complete.
-    ///   </para>
-    ///   <para>
-    ///   The <see cref="bool"/> parameter passed to the delegate is <c>true</c>
-    ///   if the send has successfully done; otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if not necessary.
-    ///   </para>
-    /// </param>
-    /// <exception cref="ArgumentException">
-    /// <paramref name="data"/> could not be UTF-8-encoded.
-    /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="data"/> is <see langword="null"/>.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    ///   <para>
-    ///   The SendAsync method is not available when the session has not
-    ///   started yet.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The SendAsync method is not available when the current state of
-    ///   the WebSocket interface is not Open.
-    ///   </para>
-    /// </exception>
-    protected void SendAsync (string data, Action<bool> completed)
+    protected void Send(string data)
     {
-      if (_websocket == null) {
-        var msg = "The SendAsync method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.SendAsync (data, completed);
+        if (_websocket != null)
+            _websocket.Send(data);
     }
 
     /// <summary>
-    /// Sends the data from the specified stream instance to the client for
-    /// a session asynchronously.
+    ///     Sends binary <paramref name="data" /> asynchronously to the client on a session.
     /// </summary>
     /// <remarks>
-    /// This method does not wait for the send to be complete.
+    ///     <para>
+    ///         This method is available after the WebSocket connection has been established.
+    ///     </para>
+    ///     <para>
+    ///         This method doesn't wait for the send to be complete.
+    ///     </para>
+    /// </remarks>
+    /// <param name="data">
+    ///     An array of <see cref="byte" /> that represents the binary data to send.
+    /// </param>
+    /// <param name="completed">
+    ///     An <c>Action&lt;bool&gt;</c> delegate that references the method(s) called when
+    ///     the send is complete. A <see cref="bool" /> passed to this delegate is <c>true</c>
+    ///     if the send is complete successfully.
+    /// </param>
+    protected void SendAsync(byte[] data, Action<bool> completed)
+    {
+        if (_websocket != null)
+            _websocket.SendAsync(data, completed);
+    }
+
+    /// <summary>
+    ///     Sends the specified <paramref name="file" /> as binary data asynchronously to
+    ///     the client on a session.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         This method is available after the WebSocket connection has been established.
+    ///     </para>
+    ///     <para>
+    ///         This method doesn't wait for the send to be complete.
+    ///     </para>
+    /// </remarks>
+    /// <param name="file">
+    ///     A <see cref="FileInfo" /> that represents the file to send.
+    /// </param>
+    /// <param name="completed">
+    ///     An <c>Action&lt;bool&gt;</c> delegate that references the method(s) called when
+    ///     the send is complete. A <see cref="bool" /> passed to this delegate is <c>true</c>
+    ///     if the send is complete successfully.
+    /// </param>
+    protected void SendAsync(FileInfo file, Action<bool> completed)
+    {
+        if (_websocket != null)
+            _websocket.SendAsync(file, completed);
+    }
+
+    /// <summary>
+    ///     Sends text <paramref name="data" /> asynchronously to the client on a session.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         This method is available after the WebSocket connection has been established.
+    ///     </para>
+    ///     <para>
+    ///         This method doesn't wait for the send to be complete.
+    ///     </para>
+    /// </remarks>
+    /// <param name="data">
+    ///     A <see cref="string" /> that represents the text data to send.
+    /// </param>
+    /// <param name="completed">
+    ///     An <c>Action&lt;bool&gt;</c> delegate that references the method(s) called when
+    ///     the send is complete. A <see cref="bool" /> passed to this delegate is <c>true</c>
+    ///     if the send is complete successfully.
+    /// </param>
+    protected void SendAsync(string data, Action<bool> completed)
+    {
+        if (_websocket != null)
+            _websocket.SendAsync(data, completed);
+    }
+
+    /// <summary>
+    ///     Sends binary data from the specified <see cref="Stream" /> asynchronously to
+    ///     the client on a session.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         This method is available after the WebSocket connection has been established.
+    ///     </para>
+    ///     <para>
+    ///         This method doesn't wait for the send to be complete.
+    ///     </para>
     /// </remarks>
     /// <param name="stream">
-    ///   <para>
-    ///   A <see cref="Stream"/> instance from which to read the data to send.
-    ///   </para>
-    ///   <para>
-    ///   The data is sent as the binary data.
-    ///   </para>
+    ///     A <see cref="Stream" /> from which contains the binary data to send.
     /// </param>
     /// <param name="length">
-    /// An <see cref="int"/> that specifies the number of bytes to send.
+    ///     An <see cref="int" /> that represents the number of bytes to send.
     /// </param>
     /// <param name="completed">
-    ///   <para>
-    ///   An <see cref="T:System.Action{bool}"/> delegate.
-    ///   </para>
-    ///   <para>
-    ///   It specifies the delegate called when the send is complete.
-    ///   </para>
-    ///   <para>
-    ///   The <see cref="bool"/> parameter passed to the delegate is <c>true</c>
-    ///   if the send has successfully done; otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if not necessary.
-    ///   </para>
+    ///     An <c>Action&lt;bool&gt;</c> delegate that references the method(s) called when
+    ///     the send is complete. A <see cref="bool" /> passed to this delegate is <c>true</c>
+    ///     if the send is complete successfully.
     /// </param>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   <paramref name="stream"/> cannot be read.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="length"/> is less than 1.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   No data could be read from <paramref name="stream"/>.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="stream"/> is <see langword="null"/>.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    ///   <para>
-    ///   The SendAsync method is not available when the session has not
-    ///   started yet.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The SendAsync method is not available when the current state of
-    ///   the WebSocket interface is not Open.
-    ///   </para>
-    /// </exception>
-    protected void SendAsync (Stream stream, int length, Action<bool> completed)
+    protected void SendAsync(Stream stream, int length, Action<bool> completed)
     {
-      if (_websocket == null) {
-        var msg = "The SendAsync method is not available.";
-
-        throw new InvalidOperationException (msg);
-      }
-
-      _websocket.SendAsync (stream, length, completed);
+        if (_websocket != null)
+            _websocket.SendAsync(stream, length, completed);
     }
 
     #endregion
-
-    #region Explicit Interface Implementations
-
-    /// <summary>
-    /// Gets the WebSocket interface for a session.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="WebSocketSharp.WebSocket"/> that represents
-    ///   the WebSocket interface.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> when the session has not started yet.
-    ///   </para>
-    /// </value>
-    WebSocket IWebSocketSession.WebSocket {
-      get {
-        return _websocket;
-      }
-    }
-
-    #endregion
-  }
 }

@@ -1,4 +1,5 @@
 #region License
+
 /*
  * AuthenticationSchemes.cs
  *
@@ -28,39 +29,43 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 #region Authors
+
 /*
  * Authors:
  * - Atsushi Enomoto <atsushi@ximian.com>
  */
+
 #endregion
 
-using System;
+#pragma warning disable CS8625
+namespace WebSocketSharp.Net;
 
-namespace WebSocketSharp.Net
+/// <summary>
+///     Specifies the scheme for authentication.
+/// </summary>
+public enum AuthenticationSchemes
 {
-  /// <summary>
-  /// Specifies the scheme for authentication.
-  /// </summary>
-  public enum AuthenticationSchemes
-  {
     /// <summary>
-    /// No authentication is allowed.
+    ///     No authentication is allowed.
     /// </summary>
     None,
+
     /// <summary>
-    /// Specifies digest authentication.
+    ///     Specifies digest authentication.
     /// </summary>
     Digest = 1,
+
     /// <summary>
-    /// Specifies basic authentication.
+    ///     Specifies basic authentication.
     /// </summary>
     Basic = 8,
+
     /// <summary>
-    /// Specifies anonymous authentication.
+    ///     Specifies anonymous authentication.
     /// </summary>
     Anonymous = 0x8000
-  }
 }

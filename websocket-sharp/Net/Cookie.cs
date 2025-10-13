@@ -1,14 +1,15 @@
 #region License
+
 /*
  * Cookie.cs
  *
- * This code is derived from Cookie.cs (System.Net) of Mono
+ * This code is derived from System.Net.Cookie.cs of Mono
  * (http://www.mono-project.com).
  *
  * The MIT License
  *
  * Copyright (c) 2004,2009 Novell, Inc. (http://www.novell.com)
- * Copyright (c) 2012-2024 sta.blockhead
+ * Copyright (c) 2012-2014 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,9 +29,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 #region Authors
+
 /*
  * Authors:
  * - Lawrence Pit <loz@cable.a2000.nl>
@@ -38,927 +41,708 @@
  * - Daniel Nauck <dna@mono-project.de>
  * - Sebastien Pouliot <sebastien@ximian.com>
  */
+
 #endregion
 
 using System;
 using System.Globalization;
 using System.Text;
 
-namespace WebSocketSharp.Net
+#pragma warning disable CS8625
+namespace WebSocketSharp.Net;
+
+/// <summary>
+///     Provides a set of methods and properties used to manage an HTTP Cookie.
+/// </summary>
+/// <remarks>
+///     <para>
+///         The Cookie class supports the following cookie formats:
+///         <see href="http://web.archive.org/web/20020803110822/http://wp.netscape.com/newsref/std/cookie_spec.html">
+///             Netscape
+///             specification
+///         </see>
+///         ,
+///         <see href="http://www.ietf.org/rfc/rfc2109.txt">RFC 2109</see>, and
+///         <see href="http://www.ietf.org/rfc/rfc2965.txt">RFC 2965</see>
+///     </para>
+///     <para>
+///         The Cookie class cannot be inherited.
+///     </para>
+/// </remarks>
+[Serializable]
+public sealed class Cookie
 {
-  /// <summary>
-  /// Provides a set of methods and properties used to manage an HTTP cookie.
-  /// </summary>
-  /// <remarks>
-  ///   <para>
-  ///   This class refers to the following specifications:
-  ///   </para>
-  ///   <list type="bullet">
-  ///     <item>
-  ///       <term>
-  ///       <see href="http://web.archive.org/web/20020803110822/http://wp.netscape.com/newsref/std/cookie_spec.html">
-  ///       Netscape specification</see>
-  ///       </term>
-  ///     </item>
-  ///     <item>
-  ///       <term>
-  ///       <see href="https://tools.ietf.org/html/rfc2109">RFC 2109</see>
-  ///       </term>
-  ///     </item>
-  ///     <item>
-  ///       <term>
-  ///       <see href="https://tools.ietf.org/html/rfc2965">RFC 2965</see>
-  ///       </term>
-  ///     </item>
-  ///     <item>
-  ///       <term>
-  ///       <see href="https://tools.ietf.org/html/rfc6265">RFC 6265</see>
-  ///       </term>
-  ///     </item>
-  ///   </list>
-  ///   <para>
-  ///   This class cannot be inherited.
-  ///   </para>
-  /// </remarks>
-  [Serializable]
-  public sealed class Cookie
-  {
-    #region Private Fields
-
-    private string                 _comment;
-    private Uri                    _commentUri;
-    private bool                   _discard;
-    private string                 _domain;
-    private static readonly int[]  _emptyPorts;
-    private DateTime               _expires;
-    private bool                   _httpOnly;
-    private string                 _name;
-    private string                 _path;
-    private string                 _port;
-    private int[]                  _ports;
-    private static readonly char[] _reservedCharsForValue;
-    private string                 _sameSite;
-    private bool                   _secure;
-    private DateTime               _timeStamp;
-    private string                 _value;
-    private int                    _version;
-
-    #endregion
-
     #region Static Constructor
 
-    static Cookie ()
+    static Cookie()
     {
-      _emptyPorts = new int[0];
-      _reservedCharsForValue = new[] { ';', ',' };
+        _reservedCharsForName = new[] { ' ', '=', ';', ',', '\n', '\r', '\t' };
+        _reservedCharsForValue = new[] { ';', ',' };
     }
 
     #endregion
 
-    #region Internal Constructors
+    #region Private Fields
 
-    internal Cookie ()
-    {
-      init (String.Empty, String.Empty, String.Empty, String.Empty);
-    }
+    private string _comment;
+    private Uri _commentUri;
+    private bool _discard;
+    private string _domain;
+    private DateTime _expires;
+    private bool _httpOnly;
+    private string _name;
+    private string _path;
+    private string _port;
+    private int[] _ports;
+    private static readonly char[] _reservedCharsForName;
+    private static readonly char[] _reservedCharsForValue;
+    private bool _secure;
+    private string _value;
+    private int _version;
 
     #endregion
 
     #region Public Constructors
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Cookie"/> class with
-    /// the specified name and value.
+    ///     Initializes a new instance of the <see cref="Cookie" /> class.
     /// </summary>
-    /// <param name="name">
-    ///   <para>
-    ///   A <see cref="string"/> that specifies the name of the cookie.
-    ///   </para>
-    ///   <para>
-    ///   The name must be a token defined in
-    ///   <see href="http://tools.ietf.org/html/rfc2616#section-2.2">
-    ///   RFC 2616</see>.
-    ///   </para>
-    /// </param>
-    /// <param name="value">
-    /// A <see cref="string"/> that specifies the value of the cookie.
-    /// </param>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   <paramref name="name"/> is an empty string.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="name"/> starts with a dollar sign.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="name"/> contains an invalid character.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="value"/> is a string not enclosed in double quotes
-    ///   although it contains a reserved character.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="name"/> is <see langword="null"/>.
-    /// </exception>
-    public Cookie (string name, string value)
-      : this (name, value, String.Empty, String.Empty)
+    public Cookie()
     {
+        _comment = string.Empty;
+        _domain = string.Empty;
+        _expires = DateTime.MinValue;
+        _name = string.Empty;
+        _path = string.Empty;
+        _port = string.Empty;
+        _ports = new int[0];
+        TimeStamp = DateTime.Now;
+        _value = string.Empty;
+        _version = 0;
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Cookie"/> class with
-    /// the specified name, value, and path.
+    ///     Initializes a new instance of the <see cref="Cookie" /> class with the specified
+    ///     <paramref name="name" /> and <paramref name="value" />.
     /// </summary>
     /// <param name="name">
-    ///   <para>
-    ///   A <see cref="string"/> that specifies the name of the cookie.
-    ///   </para>
-    ///   <para>
-    ///   The name must be a token defined in
-    ///   <see href="http://tools.ietf.org/html/rfc2616#section-2.2">
-    ///   RFC 2616</see>.
-    ///   </para>
+    ///     A <see cref="string" /> that represents the Name of the cookie.
     /// </param>
     /// <param name="value">
-    /// A <see cref="string"/> that specifies the value of the cookie.
+    ///     A <see cref="string" /> that represents the Value of the cookie.
     /// </param>
-    /// <param name="path">
-    /// A <see cref="string"/> that specifies the value of the Path
-    /// attribute of the cookie.
-    /// </param>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   <paramref name="name"/> is an empty string.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="name"/> starts with a dollar sign.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="name"/> contains an invalid character.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="value"/> is a string not enclosed in double quotes
-    ///   although it contains a reserved character.
-    ///   </para>
+    /// <exception cref="CookieException">
+    ///     <para>
+    ///         <paramref name="name" /> is <see langword="null" /> or empty.
+    ///     </para>
+    ///     <para>
+    ///         - or -
+    ///     </para>
+    ///     <para>
+    ///         <paramref name="name" /> contains an invalid character.
+    ///     </para>
+    ///     <para>
+    ///         - or -
+    ///     </para>
+    ///     <para>
+    ///         <paramref name="value" /> is <see langword="null" />.
+    ///     </para>
+    ///     <para>
+    ///         - or -
+    ///     </para>
+    ///     <para>
+    ///         <paramref name="value" /> contains a string not enclosed in double quotes
+    ///         that contains an invalid character.
+    ///     </para>
     /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="name"/> is <see langword="null"/>.
-    /// </exception>
-    public Cookie (string name, string value, string path)
-      : this (name, value, path, String.Empty)
+    public Cookie(string name, string value)
+        : this()
     {
+        Name = name;
+        Value = value;
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Cookie"/> class with
-    /// the specified name, value, path, and domain.
+    ///     Initializes a new instance of the <see cref="Cookie" /> class with the specified
+    ///     <paramref name="name" />, <paramref name="value" />, and <paramref name="path" />.
     /// </summary>
     /// <param name="name">
-    ///   <para>
-    ///   A <see cref="string"/> that specifies the name of the cookie.
-    ///   </para>
-    ///   <para>
-    ///   The name must be a token defined in
-    ///   <see href="http://tools.ietf.org/html/rfc2616#section-2.2">
-    ///   RFC 2616</see>.
-    ///   </para>
+    ///     A <see cref="string" /> that represents the Name of the cookie.
     /// </param>
     /// <param name="value">
-    /// A <see cref="string"/> that specifies the value of the cookie.
+    ///     A <see cref="string" /> that represents the Value of the cookie.
     /// </param>
     /// <param name="path">
-    /// A <see cref="string"/> that specifies the value of the Path
-    /// attribute of the cookie.
+    ///     A <see cref="string" /> that represents the value of the Path attribute of the cookie.
+    /// </param>
+    /// <exception cref="CookieException">
+    ///     <para>
+    ///         <paramref name="name" /> is <see langword="null" /> or empty.
+    ///     </para>
+    ///     <para>
+    ///         - or -
+    ///     </para>
+    ///     <para>
+    ///         <paramref name="name" /> contains an invalid character.
+    ///     </para>
+    ///     <para>
+    ///         - or -
+    ///     </para>
+    ///     <para>
+    ///         <paramref name="value" /> is <see langword="null" />.
+    ///     </para>
+    ///     <para>
+    ///         - or -
+    ///     </para>
+    ///     <para>
+    ///         <paramref name="value" /> contains a string not enclosed in double quotes
+    ///         that contains an invalid character.
+    ///     </para>
+    /// </exception>
+    public Cookie(string name, string value, string path)
+        : this(name, value)
+    {
+        Path = path;
+    }
+
+    /// <summary>
+    ///     Initializes a new instance of the <see cref="Cookie" /> class with the specified
+    ///     <paramref name="name" />, <paramref name="value" />, <paramref name="path" />, and
+    ///     <paramref name="domain" />.
+    /// </summary>
+    /// <param name="name">
+    ///     A <see cref="string" /> that represents the Name of the cookie.
+    /// </param>
+    /// <param name="value">
+    ///     A <see cref="string" /> that represents the Value of the cookie.
+    /// </param>
+    /// <param name="path">
+    ///     A <see cref="string" /> that represents the value of the Path attribute of the cookie.
     /// </param>
     /// <param name="domain">
-    /// A <see cref="string"/> that specifies the value of the Domain
-    /// attribute of the cookie.
+    ///     A <see cref="string" /> that represents the value of the Domain attribute of the cookie.
     /// </param>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   <paramref name="name"/> is an empty string.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="name"/> starts with a dollar sign.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="name"/> contains an invalid character.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   <paramref name="value"/> is a string not enclosed in double quotes
-    ///   although it contains a reserved character.
-    ///   </para>
+    /// <exception cref="CookieException">
+    ///     <para>
+    ///         <paramref name="name" /> is <see langword="null" /> or empty.
+    ///     </para>
+    ///     <para>
+    ///         - or -
+    ///     </para>
+    ///     <para>
+    ///         <paramref name="name" /> contains an invalid character.
+    ///     </para>
+    ///     <para>
+    ///         - or -
+    ///     </para>
+    ///     <para>
+    ///         <paramref name="value" /> is <see langword="null" />.
+    ///     </para>
+    ///     <para>
+    ///         - or -
+    ///     </para>
+    ///     <para>
+    ///         <paramref name="value" /> contains a string not enclosed in double quotes
+    ///         that contains an invalid character.
+    ///     </para>
     /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="name"/> is <see langword="null"/>.
-    /// </exception>
-    public Cookie (string name, string value, string path, string domain)
+    public Cookie(string name, string value, string path, string domain)
+        : this(name, value, path)
     {
-      if (name == null)
-        throw new ArgumentNullException ("name");
-
-      if (name.Length == 0)
-        throw new ArgumentException ("An empty string.", "name");
-
-      if (name[0] == '$') {
-        var msg = "It starts with a dollar sign.";
-
-        throw new ArgumentException (msg, "name");
-      }
-
-      if (!name.IsToken ()) {
-        var msg = "It contains an invalid character.";
-
-        throw new ArgumentException (msg, "name");
-      }
-
-      if (value == null)
-        value = String.Empty;
-
-      if (value.Contains (_reservedCharsForValue)) {
-        if (!value.IsEnclosedIn ('"')) {
-          var msg = "A string not enclosed in double quotes.";
-
-          throw new ArgumentException (msg, "value");
-        }
-      }
-
-      init (name, value, path ?? String.Empty, domain ?? String.Empty);
+        Domain = domain;
     }
 
     #endregion
 
     #region Internal Properties
 
-    internal bool ExactDomain {
-      get {
-        return _domain.Length == 0 || _domain[0] != '.';
-      }
+    internal bool ExactDomain { get; set; }
+
+    internal int MaxAge
+    {
+        get
+        {
+            if (_expires == DateTime.MinValue)
+                return 0;
+
+            var expires = _expires.Kind != DateTimeKind.Local
+                ? _expires.ToLocalTime()
+                : _expires;
+
+            var span = expires - DateTime.Now;
+            return span > TimeSpan.Zero
+                ? (int)span.TotalSeconds
+                : 0;
+        }
     }
 
-    internal int MaxAge {
-      get {
-        if (_expires == DateTime.MinValue)
-          return 0;
-
-        var expires = _expires.Kind != DateTimeKind.Local
-                      ? _expires.ToLocalTime ()
-                      : _expires;
-
-        var span = expires - DateTime.Now;
-
-        return span > TimeSpan.Zero
-               ? (int) span.TotalSeconds
-               : 0;
-      }
-
-      set {
-        _expires = value > 0
-                   ? DateTime.Now.AddSeconds ((double) value)
-                   : DateTime.Now;
-      }
-    }
-
-    internal int[] Ports {
-      get {
-        return _ports ?? _emptyPorts;
-      }
-    }
-
-    internal string SameSite {
-      get {
-        return _sameSite;
-      }
-
-      set {
-        _sameSite = value;
-      }
-    }
+    internal int[] Ports => _ports;
 
     #endregion
 
     #region Public Properties
 
     /// <summary>
-    /// Gets the value of the Comment attribute of the cookie.
+    ///     Gets or sets the value of the Comment attribute of the cookie.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   A <see cref="string"/> that represents the comment to document
-    ///   intended use of the cookie.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if not present.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <see langword="null"/>.
-    ///   </para>
+    ///     A <see cref="string" /> that represents the comment to document intended use of the cookie.
     /// </value>
-    public string Comment {
-      get {
-        return _comment;
-      }
+    public string Comment
+    {
+        get => _comment;
 
-      internal set {
-        _comment = value;
-      }
+        set => _comment = value ?? string.Empty;
     }
 
     /// <summary>
-    /// Gets the value of the CommentURL attribute of the cookie.
+    ///     Gets or sets the value of the CommentURL attribute of the cookie.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   A <see cref="Uri"/> that represents the URI that provides
-    ///   the comment to document intended use of the cookie.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if not present.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <see langword="null"/>.
-    ///   </para>
+    ///     A <see cref="Uri" /> that represents the URI that provides the comment to document intended
+    ///     use of the cookie.
     /// </value>
-    public Uri CommentUri {
-      get {
-        return _commentUri;
-      }
+    public Uri CommentUri
+    {
+        get => _commentUri;
 
-      internal set {
-        _commentUri = value;
-      }
+        set => _commentUri = value;
     }
 
     /// <summary>
-    /// Gets a value indicating whether the client discards the cookie
-    /// unconditionally when the client terminates.
+    ///     Gets or sets a value indicating whether the client discards the cookie unconditionally
+    ///     when the client terminates.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   <c>true</c> if the client discards the cookie unconditionally
-    ///   when the client terminates; otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <c>false</c>.
-    ///   </para>
+    ///     <c>true</c> if the client discards the cookie unconditionally when the client terminates;
+    ///     otherwise, <c>false</c>. The default value is <c>false</c>.
     /// </value>
-    public bool Discard {
-      get {
-        return _discard;
-      }
+    public bool Discard
+    {
+        get => _discard;
 
-      internal set {
-        _discard = value;
-      }
+        set => _discard = value;
     }
 
     /// <summary>
-    /// Gets or sets the value of the Domain attribute of the cookie.
+    ///     Gets or sets the value of the Domain attribute of the cookie.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   A <see cref="string"/> that represents the domain name that
-    ///   the cookie is valid for.
-    ///   </para>
-    ///   <para>
-    ///   An empty string if not necessary.
-    ///   </para>
+    ///     A <see cref="string" /> that represents the URI for which the cookie is valid.
     /// </value>
-    public string Domain {
-      get {
-        return _domain;
-      }
+    public string Domain
+    {
+        get => _domain;
 
-      set {
-        _domain = value ?? String.Empty;
-      }
-    }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the cookie has expired.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   <c>true</c> if the cookie has expired; otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <c>false</c>.
-    ///   </para>
-    /// </value>
-    public bool Expired {
-      get {
-        return _expires != DateTime.MinValue && _expires <= DateTime.Now;
-      }
-
-      set {
-        _expires = value ? DateTime.Now : DateTime.MinValue;
-      }
-    }
-
-    /// <summary>
-    /// Gets or sets the value of the Expires attribute of the cookie.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="DateTime"/> that represents the date and time that
-    ///   the cookie expires on.
-    ///   </para>
-    ///   <para>
-    ///   <see cref="DateTime.MinValue"/> if not necessary.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <see cref="DateTime.MinValue"/>.
-    ///   </para>
-    /// </value>
-    public DateTime Expires {
-      get {
-        return _expires;
-      }
-
-      set {
-        _expires = value;
-      }
-    }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether non-HTTP APIs can access
-    /// the cookie.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   <c>true</c> if non-HTTP APIs cannot access the cookie; otherwise,
-    ///   <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <c>false</c>.
-    ///   </para>
-    /// </value>
-    public bool HttpOnly {
-      get {
-        return _httpOnly;
-      }
-
-      set {
-        _httpOnly = value;
-      }
-    }
-
-    /// <summary>
-    /// Gets or sets the name of the cookie.
-    /// </summary>
-    /// <value>
-    ///   <para>
-    ///   A <see cref="string"/> that represents the name of the cookie.
-    ///   </para>
-    ///   <para>
-    ///   The name must be a token defined in
-    ///   <see href="http://tools.ietf.org/html/rfc2616#section-2.2">
-    ///   RFC 2616</see>.
-    ///   </para>
-    /// </value>
-    /// <exception cref="ArgumentException">
-    ///   <para>
-    ///   The value specified for a set operation is an empty string.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The value specified for a set operation starts with a dollar sign.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
-    ///   The value specified for a set operation contains an invalid character.
-    ///   </para>
-    /// </exception>
-    /// <exception cref="ArgumentNullException">
-    /// The value specified for a set operation is <see langword="null"/>.
-    /// </exception>
-    public string Name {
-      get {
-        return _name;
-      }
-
-      set {
-        if (value == null)
-          throw new ArgumentNullException ("value");
-
-        if (value.Length == 0)
-          throw new ArgumentException ("An empty string.", "value");
-
-        if (value[0] == '$') {
-          var msg = "It starts with a dollar sign.";
-
-          throw new ArgumentException (msg, "value");
+        set
+        {
+            if (value.IsNullOrEmpty())
+            {
+                _domain = string.Empty;
+                ExactDomain = true;
+            }
+            else
+            {
+                _domain = value;
+                ExactDomain = value[0] != '.';
+            }
         }
+    }
 
-        if (!value.IsToken ()) {
-          var msg = "It contains an invalid character.";
+    /// <summary>
+    ///     Gets or sets a value indicating whether the cookie has expired.
+    /// </summary>
+    /// <value>
+    ///     <c>true</c> if the cookie has expired; otherwise, <c>false</c>.
+    ///     The default value is <c>false</c>.
+    /// </value>
+    public bool Expired
+    {
+        get => _expires != DateTime.MinValue && _expires <= DateTime.Now;
 
-          throw new ArgumentException (msg, "value");
+        set => _expires = value ? DateTime.Now : DateTime.MinValue;
+    }
+
+    /// <summary>
+    ///     Gets or sets the value of the Expires attribute of the cookie.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="DateTime" /> that represents the date and time at which the cookie expires.
+    ///     The default value is <see cref="DateTime.MinValue" />.
+    /// </value>
+    public DateTime Expires
+    {
+        get => _expires;
+
+        set => _expires = value;
+    }
+
+    /// <summary>
+    ///     Gets or sets a value indicating whether non-HTTP APIs can access the cookie.
+    /// </summary>
+    /// <value>
+    ///     <c>true</c> if non-HTTP APIs cannot access the cookie; otherwise, <c>false</c>.
+    ///     The default value is <c>false</c>.
+    /// </value>
+    public bool HttpOnly
+    {
+        get => _httpOnly;
+
+        set => _httpOnly = value;
+    }
+
+    /// <summary>
+    ///     Gets or sets the Name of the cookie.
+    /// </summary>
+    /// <value>
+    ///     A <see cref="string" /> that represents the Name of the cookie.
+    /// </value>
+    /// <exception cref="CookieException">
+    ///     <para>
+    ///         The value specified for a set operation is <see langword="null" /> or empty.
+    ///     </para>
+    ///     <para>
+    ///         - or -
+    ///     </para>
+    ///     <para>
+    ///         The value specified for a set operation contains an invalid character.
+    ///     </para>
+    /// </exception>
+    public string Name
+    {
+        get => _name;
+
+        set
+        {
+            string msg;
+            if (!canSetName(value, out msg))
+                throw new CookieException(msg);
+
+            _name = value;
         }
-
-        _name = value;
-      }
     }
 
     /// <summary>
-    /// Gets or sets the value of the Path attribute of the cookie.
+    ///     Gets or sets the value of the Path attribute of the cookie.
     /// </summary>
     /// <value>
-    /// A <see cref="string"/> that represents the subset of URI on
-    /// the origin server that the cookie applies to.
+    ///     A <see cref="string" /> that represents the subset of URI on the origin server
+    ///     to which the cookie applies.
     /// </value>
-    public string Path {
-      get {
-        return _path;
-      }
+    public string Path
+    {
+        get => _path;
 
-      set {
-        _path = value ?? String.Empty;
-      }
+        set => _path = value ?? string.Empty;
     }
 
     /// <summary>
-    /// Gets the value of the Port attribute of the cookie.
+    ///     Gets or sets the value of the Port attribute of the cookie.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   A <see cref="string"/> that represents the list of TCP ports
-    ///   that the cookie applies to.
-    ///   </para>
-    ///   <para>
-    ///   <see langword="null"/> if not present.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <see langword="null"/>.
-    ///   </para>
+    ///     A <see cref="string" /> that represents the list of TCP ports to which the cookie applies.
     /// </value>
-    public string Port {
-      get {
-        return _port;
-      }
+    /// <exception cref="CookieException">
+    ///     The value specified for a set operation isn't enclosed in double quotes or
+    ///     couldn't be parsed.
+    /// </exception>
+    public string Port
+    {
+        get => _port;
 
-      internal set {
-        int[] ports;
+        set
+        {
+            if (value.IsNullOrEmpty())
+            {
+                _port = string.Empty;
+                _ports = new int[0];
 
-        if (!tryCreatePorts (value, out ports))
-          return;
+                return;
+            }
 
-        _ports = ports;
-        _port = value;
-      }
+            if (!value.IsEnclosedIn('"'))
+                throw new CookieException(
+                    "The value specified for the Port attribute isn't enclosed in double quotes.");
+
+            string err;
+            if (!tryCreatePorts(value, out _ports, out err))
+                throw new CookieException(
+                    string.Format(
+                        "The value specified for the Port attribute contains an invalid value: {0}", err));
+
+            _port = value;
+        }
     }
 
     /// <summary>
-    /// Gets or sets a value indicating whether the security level of
-    /// the cookie is secure.
+    ///     Gets or sets a value indicating whether the security level of the cookie is secure.
     /// </summary>
     /// <remarks>
-    /// When this property is <c>true</c>, the cookie may be included in
-    /// the request only if the request is transmitted over HTTPS.
+    ///     When this property is <c>true</c>, the cookie may be included in the HTTP request
+    ///     only if the request is transmitted over the HTTPS.
     /// </remarks>
     /// <value>
-    ///   <para>
-    ///   <c>true</c> if the security level of the cookie is secure;
-    ///   otherwise, <c>false</c>.
-    ///   </para>
-    ///   <para>
-    ///   The default value is <c>false</c>.
-    ///   </para>
+    ///     <c>true</c> if the security level of the cookie is secure; otherwise, <c>false</c>.
+    ///     The default value is <c>false</c>.
     /// </value>
-    public bool Secure {
-      get {
-        return _secure;
-      }
+    public bool Secure
+    {
+        get => _secure;
 
-      set {
-        _secure = value;
-      }
+        set => _secure = value;
     }
 
     /// <summary>
-    /// Gets the time when the cookie was issued.
+    ///     Gets the time when the cookie was issued.
     /// </summary>
     /// <value>
-    /// A <see cref="DateTime"/> that represents the time when
-    /// the cookie was issued.
+    ///     A <see cref="DateTime" /> that represents the time when the cookie was issued.
     /// </value>
-    public DateTime TimeStamp {
-      get {
-        return _timeStamp;
-      }
-    }
+    public DateTime TimeStamp { get; }
 
     /// <summary>
-    /// Gets or sets the value of the cookie.
+    ///     Gets or sets the Value of the cookie.
     /// </summary>
     /// <value>
-    /// A <see cref="string"/> that represents the value of the cookie.
+    ///     A <see cref="string" /> that represents the Value of the cookie.
     /// </value>
-    /// <exception cref="ArgumentException">
-    /// The value specified for a set operation is a string not enclosed in
-    /// double quotes although it contains a reserved character.
+    /// <exception cref="CookieException">
+    ///     <para>
+    ///         The value specified for a set operation is <see langword="null" />.
+    ///     </para>
+    ///     <para>
+    ///         - or -
+    ///     </para>
+    ///     <para>
+    ///         The value specified for a set operation contains a string not enclosed in double quotes
+    ///         that contains an invalid character.
+    ///     </para>
     /// </exception>
-    public string Value {
-      get {
-        return _value;
-      }
+    public string Value
+    {
+        get => _value;
 
-      set {
-        if (value == null)
-          value = String.Empty;
+        set
+        {
+            string msg;
+            if (!canSetValue(value, out msg))
+                throw new CookieException(msg);
 
-        if (value.Contains (_reservedCharsForValue)) {
-          if (!value.IsEnclosedIn ('"')) {
-            var msg = "A string not enclosed in double quotes.";
-
-            throw new ArgumentException (msg, "value");
-          }
+            _value = value.Length > 0 ? value : "\"\"";
         }
-
-        _value = value;
-      }
     }
 
     /// <summary>
-    /// Gets the value of the Version attribute of the cookie.
+    ///     Gets or sets the value of the Version attribute of the cookie.
     /// </summary>
     /// <value>
-    ///   <para>
-    ///   An <see cref="int"/> that represents the version of HTTP state
-    ///   management that the cookie conforms to.
-    ///   </para>
-    ///   <para>
-    ///   0 or 1.
-    ///   </para>
-    ///   <para>
-    ///   0 if not present.
-    ///   </para>
-    ///   <para>
-    ///   The default value is 0.
-    ///   </para>
+    ///     An <see cref="int" /> that represents the version of the HTTP state management
+    ///     to which the cookie conforms.
     /// </value>
-    public int Version {
-      get {
-        return _version;
-      }
+    /// <exception cref="ArgumentOutOfRangeException">
+    ///     The value specified for a set operation isn't 0 or 1.
+    /// </exception>
+    public int Version
+    {
+        get => _version;
 
-      internal set {
-        if (value < 0 || value > 1)
-          return;
+        set
+        {
+            if (value < 0 || value > 1)
+                throw new ArgumentOutOfRangeException(nameof(value), "Not 0 or 1.");
 
-        _version = value;
-      }
+            _version = value;
+        }
     }
 
     #endregion
 
     #region Private Methods
 
-    private static int hash (int i, int j, int k, int l, int m)
+    private static bool canSetName(string name, out string message)
     {
-      return i
-             ^ (j << 13 | j >> 19)
-             ^ (k << 26 | k >>  6)
-             ^ (l <<  7 | l >> 25)
-             ^ (m << 20 | m >> 12);
-    }
-
-    private void init (string name, string value, string path, string domain)
-    {
-      _name = name;
-      _value = value;
-      _path = path;
-      _domain = domain;
-
-      _expires = DateTime.MinValue;
-      _timeStamp = DateTime.Now;
-    }
-
-    private string toResponseStringVersion0 ()
-    {
-      var buff = new StringBuilder (64);
-
-      buff.AppendFormat ("{0}={1}", _name, _value);
-
-      if (_expires != DateTime.MinValue) {
-        var expires = _expires
-                      .ToUniversalTime ()
-                      .ToString (
-                        "ddd, dd'-'MMM'-'yyyy HH':'mm':'ss 'GMT'",
-                        CultureInfo.CreateSpecificCulture ("en-US")
-                      );
-
-        buff.AppendFormat ("; Expires={0}", expires);
-      }
-
-      if (!_path.IsNullOrEmpty ())
-        buff.AppendFormat ("; Path={0}", _path);
-
-      if (!_domain.IsNullOrEmpty ())
-        buff.AppendFormat ("; Domain={0}", _domain);
-
-      if (!_sameSite.IsNullOrEmpty ())
-        buff.AppendFormat ("; SameSite={0}", _sameSite);
-
-      if (_secure)
-        buff.Append ("; Secure");
-
-      if (_httpOnly)
-        buff.Append ("; HttpOnly");
-
-      return buff.ToString ();
-    }
-
-    private string toResponseStringVersion1 ()
-    {
-      var buff = new StringBuilder (64);
-
-      buff.AppendFormat ("{0}={1}; Version={2}", _name, _value, _version);
-
-      if (_expires != DateTime.MinValue)
-        buff.AppendFormat ("; Max-Age={0}", MaxAge);
-
-      if (!_path.IsNullOrEmpty ())
-        buff.AppendFormat ("; Path={0}", _path);
-
-      if (!_domain.IsNullOrEmpty ())
-        buff.AppendFormat ("; Domain={0}", _domain);
-
-      if (_port != null) {
-        if (_port != "\"\"")
-          buff.AppendFormat ("; Port={0}", _port);
-        else
-          buff.Append ("; Port");
-      }
-
-      if (_comment != null) {
-        var comment = HttpUtility.UrlEncode (_comment);
-
-        buff.AppendFormat ("; Comment={0}", comment);
-      }
-
-      if (_commentUri != null) {
-        var url = _commentUri.OriginalString;
-
-        buff.AppendFormat (
-          "; CommentURL={0}",
-          !url.IsToken () ? url.Quote () : url
-        );
-      }
-
-      if (_discard)
-        buff.Append ("; Discard");
-
-      if (_secure)
-        buff.Append ("; Secure");
-
-      return buff.ToString ();
-    }
-
-    private static bool tryCreatePorts (string value, out int[] result)
-    {
-      result = null;
-
-      var arr = value.Trim ('"').Split (',');
-      var len = arr.Length;
-      var res = new int[len];
-
-      for (var i = 0; i < len; i++) {
-        var s = arr[i].Trim ();
-
-        if (s.Length == 0) {
-          res[i] = Int32.MinValue;
-
-          continue;
+        if (name.IsNullOrEmpty())
+        {
+            message = "The value specified for the Name is null or empty.";
+            return false;
         }
 
-        if (!Int32.TryParse (s, out res[i]))
-          return false;
-      }
+        if (name[0] == '$' || name.Contains(_reservedCharsForName))
+        {
+            message = "The value specified for the Name contains an invalid character.";
+            return false;
+        }
 
-      result = res;
+        message = string.Empty;
+        return true;
+    }
 
-      return true;
+    private static bool canSetValue(string value, out string message)
+    {
+        if (value == null)
+        {
+            message = "The value specified for the Value is null.";
+            return false;
+        }
+
+        if (value.Contains(_reservedCharsForValue) && !value.IsEnclosedIn('"'))
+        {
+            message = "The value specified for the Value contains an invalid character.";
+            return false;
+        }
+
+        message = string.Empty;
+        return true;
+    }
+
+    private static int hash(int i, int j, int k, int l, int m)
+    {
+        return i ^
+               ((j << 13) | (j >> 19)) ^
+               ((k << 26) | (k >> 6)) ^
+               ((l << 7) | (l >> 25)) ^
+               ((m << 20) | (m >> 12));
+    }
+
+    private string toResponseStringVersion0()
+    {
+        var output = new StringBuilder(64);
+        output.AppendFormat("{0}={1}", _name, _value);
+
+        if (_expires != DateTime.MinValue)
+            output.AppendFormat(
+                "; Expires={0}",
+                _expires.ToUniversalTime().ToString(
+                    "ddd, dd'-'MMM'-'yyyy HH':'mm':'ss 'GMT'",
+                    CultureInfo.CreateSpecificCulture("en-US")));
+
+        if (!_path.IsNullOrEmpty())
+            output.AppendFormat("; Path={0}", _path);
+
+        if (!_domain.IsNullOrEmpty())
+            output.AppendFormat("; Domain={0}", _domain);
+
+        if (_secure)
+            output.Append("; Secure");
+
+        if (_httpOnly)
+            output.Append("; HttpOnly");
+
+        return output.ToString();
+    }
+
+    private string toResponseStringVersion1()
+    {
+        var output = new StringBuilder(64);
+        output.AppendFormat("{0}={1}; Version={2}", _name, _value, _version);
+
+        if (_expires != DateTime.MinValue)
+            output.AppendFormat("; Max-Age={0}", MaxAge);
+
+        if (!_path.IsNullOrEmpty())
+            output.AppendFormat("; Path={0}", _path);
+
+        if (!_domain.IsNullOrEmpty())
+            output.AppendFormat("; Domain={0}", _domain);
+
+        if (!_port.IsNullOrEmpty())
+        {
+            if (_port == "\"\"")
+                output.Append("; Port");
+            else
+                output.AppendFormat("; Port={0}", _port);
+        }
+
+        if (!_comment.IsNullOrEmpty())
+            output.AppendFormat("; Comment={0}", _comment.UrlEncode());
+
+        if (_commentUri != null)
+        {
+            var url = _commentUri.OriginalString;
+            output.AppendFormat("; CommentURL={0}", url.IsToken() ? url : url.Quote());
+        }
+
+        if (_discard)
+            output.Append("; Discard");
+
+        if (_secure)
+            output.Append("; Secure");
+
+        return output.ToString();
+    }
+
+    private static bool tryCreatePorts(string value, out int[] result, out string parseError)
+    {
+        var ports = value.Trim('"').Split(',');
+        var len = ports.Length;
+        var res = new int[len];
+        for (var i = 0; i < len; i++)
+        {
+            res[i] = int.MinValue;
+
+            var port = ports[i].Trim();
+            if (port.Length == 0)
+                continue;
+
+            if (!int.TryParse(port, out res[i]))
+            {
+                result = new int[0];
+                parseError = port;
+
+                return false;
+            }
+        }
+
+        result = res;
+        parseError = string.Empty;
+
+        return true;
     }
 
     #endregion
 
     #region Internal Methods
 
-    internal bool EqualsWithoutValue (Cookie cookie)
+    // From client to server
+    internal string ToRequestString(Uri uri)
     {
-      var caseSensitive = StringComparison.InvariantCulture;
-      var caseInsensitive = StringComparison.InvariantCultureIgnoreCase;
+        if (_name.Length == 0)
+            return string.Empty;
 
-      return _name.Equals (cookie._name, caseInsensitive)
-             && _path.Equals (cookie._path, caseSensitive)
-             && _domain.Equals (cookie._domain, caseInsensitive)
-             && _version == cookie._version;
-    }
+        if (_version == 0)
+            return string.Format("{0}={1}", _name, _value);
 
-    internal bool EqualsWithoutValueAndVersion (Cookie cookie)
-    {
-      var caseSensitive = StringComparison.InvariantCulture;
-      var caseInsensitive = StringComparison.InvariantCultureIgnoreCase;
+        var output = new StringBuilder(64);
+        output.AppendFormat("$Version={0}; {1}={2}", _version, _name, _value);
 
-      return _name.Equals (cookie._name, caseInsensitive)
-             && _path.Equals (cookie._path, caseSensitive)
-             && _domain.Equals (cookie._domain, caseInsensitive);
-    }
-
-    internal string ToRequestString (Uri uri)
-    {
-      if (_name.Length == 0)
-        return String.Empty;
-
-      if (_version == 0)
-        return String.Format ("{0}={1}", _name, _value);
-
-      var buff = new StringBuilder (64);
-
-      buff.AppendFormat ("$Version={0}; {1}={2}", _version, _name, _value);
-
-      if (!_path.IsNullOrEmpty ())
-        buff.AppendFormat ("; $Path={0}", _path);
-      else if (uri != null)
-        buff.AppendFormat ("; $Path={0}", uri.GetAbsolutePath ());
-      else
-        buff.Append ("; $Path=/");
-
-      if (!_domain.IsNullOrEmpty ()) {
-        if (uri == null || uri.Host != _domain)
-          buff.AppendFormat ("; $Domain={0}", _domain);
-      }
-
-      if (_port != null) {
-        if (_port != "\"\"")
-          buff.AppendFormat ("; $Port={0}", _port);
+        if (!_path.IsNullOrEmpty())
+            output.AppendFormat("; $Path={0}", _path);
+        else if (uri != null)
+            output.AppendFormat("; $Path={0}", uri.GetAbsolutePath());
         else
-          buff.Append ("; $Port");
-      }
+            output.Append("; $Path=/");
 
-      return buff.ToString ();
+        var appendDomain = uri == null || uri.Host != _domain;
+        if (appendDomain && !_domain.IsNullOrEmpty())
+            output.AppendFormat("; $Domain={0}", _domain);
+
+        if (!_port.IsNullOrEmpty())
+        {
+            if (_port == "\"\"")
+                output.Append("; $Port");
+            else
+                output.AppendFormat("; $Port={0}", _port);
+        }
+
+        return output.ToString();
     }
 
-    internal string ToResponseString ()
+    // From server to client
+    internal string ToResponseString()
     {
-      if (_name.Length == 0)
-        return String.Empty;
-
-      if (_version == 0)
-        return toResponseStringVersion0 ();
-
-      return toResponseStringVersion1 ();
-    }
-
-    internal static bool TryCreate (
-      string name,
-      string value,
-      out Cookie result
-    )
-    {
-      result = null;
-
-      try {
-        result = new Cookie (name, value);
-      }
-      catch {
-        return false;
-      }
-
-      return true;
+        return _name.Length > 0
+            ? _version == 0 ? toResponseStringVersion0() : toResponseStringVersion1()
+            : string.Empty;
     }
 
     #endregion
@@ -966,67 +750,57 @@ namespace WebSocketSharp.Net
     #region Public Methods
 
     /// <summary>
-    /// Determines whether the current cookie instance is equal to
-    /// the specified <see cref="object"/> instance.
+    ///     Determines whether the specified <see cref="Object" /> is equal to the current
+    ///     <see cref="Cookie" />.
     /// </summary>
     /// <param name="comparand">
-    ///   <para>
-    ///   An <see cref="object"/> instance to compare with
-    ///   the current cookie instance.
-    ///   </para>
-    ///   <para>
-    ///   An reference to a <see cref="Cookie"/> instance.
-    ///   </para>
+    ///     An <see cref="Object" /> to compare with the current <see cref="Cookie" />.
     /// </param>
     /// <returns>
-    /// <c>true</c> if the current cookie instance is equal to
-    /// <paramref name="comparand"/>; otherwise, <c>false</c>.
+    ///     <c>true</c> if <paramref name="comparand" /> is equal to the current <see cref="Cookie" />;
+    ///     otherwise, <c>false</c>.
     /// </returns>
-    public override bool Equals (object comparand)
+    public override bool Equals(object comparand)
     {
-      var cookie = comparand as Cookie;
-
-      if (cookie == null)
-        return false;
-
-      var caseSensitive = StringComparison.InvariantCulture;
-      var caseInsensitive = StringComparison.InvariantCultureIgnoreCase;
-
-      return _name.Equals (cookie._name, caseInsensitive)
-             && _value.Equals (cookie._value, caseSensitive)
-             && _path.Equals (cookie._path, caseSensitive)
-             && _domain.Equals (cookie._domain, caseInsensitive)
-             && _version == cookie._version;
+        var cookie = comparand as Cookie;
+        return cookie != null &&
+               _name.Equals(cookie.Name, StringComparison.InvariantCultureIgnoreCase) &&
+               _value.Equals(cookie.Value, StringComparison.InvariantCulture) &&
+               _path.Equals(cookie.Path, StringComparison.InvariantCulture) &&
+               _domain.Equals(cookie.Domain, StringComparison.InvariantCultureIgnoreCase) &&
+               _version == cookie.Version;
     }
 
     /// <summary>
-    /// Gets a hash code for the current cookie instance.
+    ///     Serves as a hash function for a <see cref="Cookie" /> object.
     /// </summary>
     /// <returns>
-    /// An <see cref="int"/> that represents the hash code.
+    ///     An <see cref="int" /> that represents the hash code for the current <see cref="Cookie" />.
     /// </returns>
-    public override int GetHashCode ()
+    public override int GetHashCode()
     {
-      var i = StringComparer.InvariantCultureIgnoreCase.GetHashCode (_name);
-      var j = _value.GetHashCode ();
-      var k = _path.GetHashCode ();
-      var l = StringComparer.InvariantCultureIgnoreCase.GetHashCode (_domain);
-      var m = _version;
-
-      return hash (i, j, k, l, m);
+        return hash(
+            StringComparer.InvariantCultureIgnoreCase.GetHashCode(_name),
+            _value.GetHashCode(),
+            _path.GetHashCode(),
+            StringComparer.InvariantCultureIgnoreCase.GetHashCode(_domain),
+            _version);
     }
 
     /// <summary>
-    /// Returns a string that represents the current cookie instance.
+    ///     Returns a <see cref="string" /> that represents the current <see cref="Cookie" />.
     /// </summary>
+    /// <remarks>
+    ///     This method returns a <see cref="string" /> to use to send an HTTP Cookie to
+    ///     an origin server.
+    /// </remarks>
     /// <returns>
-    /// A <see cref="string"/> that is suitable for the Cookie request header.
+    ///     A <see cref="string" /> that represents the current <see cref="Cookie" />.
     /// </returns>
-    public override string ToString ()
+    public override string ToString()
     {
-      return ToRequestString (null);
+        return ToRequestString(null);
     }
 
     #endregion
-  }
 }

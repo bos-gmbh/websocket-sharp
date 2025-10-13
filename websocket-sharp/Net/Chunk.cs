@@ -1,4 +1,5 @@
 #region License
+
 /*
  * Chunk.cs
  *
@@ -8,7 +9,7 @@
  * The MIT License
  *
  * Copyright (c) 2003 Ximian, Inc (http://www.ximian.com)
- * Copyright (c) 2014-2021 sta.blockhead
+ * Copyright (c) 2014-2015 sta.blockhead
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,66 +29,63 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #endregion
 
 #region Authors
+
 /*
  * Authors:
  * - Gonzalo Paniagua Javier <gonzalo@ximian.com>
  */
+
 #endregion
 
 using System;
 
-namespace WebSocketSharp.Net
+#pragma warning disable CS8625
+namespace WebSocketSharp.Net;
+
+internal class Chunk
 {
-  internal class Chunk
-  {
-    #region Private Fields
-
-    private byte[] _data;
-    private int    _offset;
-
-    #endregion
-
     #region Public Constructors
 
-    public Chunk (byte[] data)
+    public Chunk(byte[] data)
     {
-      _data = data;
+        _data = data;
     }
 
     #endregion
 
     #region Public Properties
 
-    public int ReadLeft {
-      get {
-        return _data.Length - _offset;
-      }
-    }
+    public int ReadLeft => _data.Length - _offset;
 
     #endregion
 
     #region Public Methods
 
-    public int Read (byte[] buffer, int offset, int count)
+    public int Read(byte[] buffer, int offset, int count)
     {
-      var left = _data.Length - _offset;
+        var left = _data.Length - _offset;
+        if (left == 0)
+            return left;
 
-      if (left == 0)
-        return 0;
+        if (count > left)
+            count = left;
 
-      if (count > left)
-        count = left;
+        Buffer.BlockCopy(_data, _offset, buffer, offset, count);
+        _offset += count;
 
-      Buffer.BlockCopy (_data, _offset, buffer, offset, count);
-
-      _offset += count;
-
-      return count;
+        return count;
     }
 
     #endregion
-  }
+
+    #region Private Fields
+
+    private readonly byte[] _data;
+    private int _offset;
+
+    #endregion
 }

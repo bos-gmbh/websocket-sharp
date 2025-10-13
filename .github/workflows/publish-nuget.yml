@@ -40,7 +40,6 @@ jobs:
             ver="0.0.0-$sha_short.${{ github.run_number }}"
           fi
           echo "PKG_VERSION=$ver" >> $GITHUB_ENV
-          echo "TAG_FROM_COMMIT=$TAG_FROM_COMMIT" >> $GITHUB_ENV
           if [[ "$ver" == *-* ]]; then
             echo "PRERELEASE=true" >> $GITHUB_ENV
           else
@@ -55,14 +54,6 @@ jobs:
       - name: Pack
         working-directory: ./WebSocketSharp
         run: dotnet pack -c Release -o "./out" /p:Version="${{ env.PKG_VERSION }}" /p:PackageVersion="${{ env.PKG_VERSION }}" --no-build
-
-      - name: Tag commit
-        if: ${{ github.event.inputs.version != '' }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "v${{ env.PKG_VERSION }}" -m "Release v${{ env.PKG_VERSION }}"
-          git push origin "v${{ env.PKG_VERSION }}"
 
       - name: Publish to GitHub Packages
         working-directory: ./WebSocketSharp

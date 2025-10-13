@@ -51,10 +51,10 @@ jobs:
           echo "Package version: $ver (prerelease=$PRERELEASE)"
 
       - name: Build
-        run: dotnet build "websocket-sharp/websocket-sharp.csproj" -c Release /p:Version="${{ env.PKG_VERSION }}"
+        run: dotnet build -c Release /p:Version="${{ env.PKG_VERSION }}"
 
       - name: Pack
-        run: dotnet pack "websocket-sharp/websocket-sharp.csproj" -c Release -o "./out" /p:Version="${{ env.PKG_VERSION }}" /p:PackageVersion="${{ env.PKG_VERSION }}" --no-build
+        run: dotnet pack -c Release -o "./out" /p:Version="${{ env.PKG_VERSION }}" /p:PackageVersion="${{ env.PKG_VERSION }}" --no-build
 
       - name: Tag commit
         if: env.TAG_FROM_COMMIT == 'true'

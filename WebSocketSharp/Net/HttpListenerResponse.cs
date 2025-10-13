@@ -116,7 +116,7 @@ public sealed class HttpListenerResponse : IDisposable
         }
 
         if (headers["Server"] == null)
-            headers.InternalSet("Server", "websocket-sharp/1.0", true);
+            headers.InternalSet("Server", "WebSocketSharp/1.0", true);
 
         var prov = CultureInfo.InvariantCulture;
         if (headers["Date"] == null)

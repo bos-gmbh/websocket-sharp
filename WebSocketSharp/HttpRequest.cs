@@ -64,7 +64,7 @@ internal class HttpRequest : HttpBase
     internal HttpRequest(string method, string uri)
         : this(method, uri, HttpVersion.Version11, new NameValueCollection())
     {
-        Headers["User-Agent"] = "websocket-sharp/1.0";
+        Headers["User-Agent"] = "WebSocketSharp/1.0";
     }
 
     #endregion

@@ -67,34 +67,18 @@ jobs:
       - name: Publish to GitHub Packages
         run: dotnet nuget push "./out/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source "https://nuget.pkg.github.com/${{ github.repository_owner }}" --skip-duplicate
 
-      - name: Prepare release artifacts
-        shell: bash
-        run: |
-          sudo apt-get install -y zip
-          zip -j "./out/Bos.WebsocketSharp-netstandard2.0.zip" \
-            "websocket-sharp/bin/Release/netstandard2.0/websocket-sharp.dll" \
-            "websocket-sharp/bin/Release/netstandard2.0/websocket-sharp.xml"
-
-      - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Bos.WebsocketSharp-${{ env.PKG_VERSION }}
-          path: |
-            out/*.nupkg
-            out/Bos.WebsocketSharp-netstandard2.0.zip
-
       - name: Create/Update GitHub Release
         uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: v${{ env.PKG_VERSION }}
-          name: Bos.WebsocketSharp v${{ env.PKG_VERSION }}
+          name: Bos.WebSocketSharp v${{ env.PKG_VERSION }}
           allowUpdates: true
           removeArtifacts: false
           prerelease: ${{ env.PRERELEASE == 'true' }}
           makeLatest: ${{ env.PRERELEASE != 'true' }}
           body: |
-            Release of Bos.WebsocketSharp v${{ env.PKG_VERSION }}.
+            Release of Bos.WebSocketSharp v${{ env.PKG_VERSION }}.
 
             Artifacts:
             - NuGet package (.nupkg) for GitHub Packages
@@ -102,5 +86,4 @@ jobs:
 
             Source: https://github.com/${{ github.repository }}
           artifacts: |
-            out/*.nupkg
-            out/Bos.WebsocketSharp-netstandard2.0.zip
+            out/*

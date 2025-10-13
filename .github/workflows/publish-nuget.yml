@@ -72,10 +72,6 @@ jobs:
           body: |
             Release of Bos.WebSocketSharp v${{ env.PKG_VERSION }}.
 
-            Artifacts:
-            - NuGet package (.nupkg) for GitHub Packages
-            - Compiled binary (DLL) and XML docs zipped for quick reference
-
             Source: https://github.com/${{ github.repository }}
           artifacts: |
             WebSocketSharp/out/*
